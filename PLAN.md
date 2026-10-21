@@ -5,11 +5,14 @@
 > PHP 8.5, `bin/experiment` / `bin/benchmark`, `docs/PHASES.md` и контракт
 > «код → глава книги». Содержательная часть по алгоритмам сохранена.
 
-**Текущее состояние репозитория:** каркас Phase 0 уже создан — Docker-образ
-`php:8.5-cli`, Compose, Makefile, Composer, PHPUnit, PHPStan level 8,
-PHP-CS-Fixer, GitHub Actions, README, docs и `DocumentationTest`. Осталось:
-первый коммит, публичный remote и перенос этого плана в `docs/PHASES.md`.
-Проверки `make test`, `make analyse`, `make format-check` проходят в контейнере.
+**Текущее состояние репозитория:** каркас Phase 0 создан и опубликован —
+Docker-образ `php:8.5-cli`, Compose, Makefile, Composer, PHPUnit, PHPStan
+level 8, PHP-CS-Fixer, GitHub Actions, README, docs и `DocumentationTest`.
+Первый коммит запушен в публичный
+[`Researcher86/algorithms-lab`](https://github.com/Researcher86/algorithms-lab),
+CI зелёный. Осталось: перенести этот план в `docs/PHASES.md` и удалить
+корневой `PLAN.md`. Проверки `make test`, `make analyse`, `make format-check`
+проходят в контейнере.
 
 ---
 
@@ -368,7 +371,7 @@ algorithms-lab/
 
 ### Задачи
 
-- [ ] Создать публичный репозиторий `Researcher86/algorithms-lab`, добавить remote.
+- [x] Создать публичный репозиторий `Researcher86/algorithms-lab`, добавить remote.
 - [x] `composer.json`: имя, `"php": "^8.5"`, `ext-pcntl`, `ext-posix`, PSR-4,
       dev-зависимости, scripts `test/analyse/format/format:check`.
 - [x] `Dockerfile`: `php:8.5-cli`, расширения, Composer, Xdebug (off by default),
@@ -392,7 +395,7 @@ algorithms-lab/
       ссылки резолвятся, пути в backticks существуют. Проверка команд
       experiment/benchmark — в Phase 1, когда эти команды появятся.
 - [ ] Перенести этот PLAN.md в `docs/PHASES.md` (на английском) и удалить PLAN.md.
-- [ ] Первый коммит: `Initialize algorithms-lab project`.
+- [x] Первый коммит: `Initialize algorithms-lab project`.
 
 ### Definition of Done
 

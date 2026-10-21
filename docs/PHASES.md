@@ -78,8 +78,10 @@ with no PHP, Composer or extensions installed on the host.
 - [x] GitHub Actions workflow that runs the same make targets in Docker.
 - [x] `DocumentationTest` that checks docs links and backtick paths.
 - [x] First real class and test: `src/Foundation/DeterministicRandom.php`.
+- [x] Initial commit and public remote
+      [`Researcher86/algorithms-lab`](https://github.com/Researcher86/algorithms-lab);
+      CI is green on `master`.
 - [ ] Fold `PLAN.md` into this document and delete it from the root.
-- [ ] Initial commit and public remote `Researcher86/algorithms-lab`.
 
 ### Definition of Done
 
