@@ -8,8 +8,9 @@
 
 This repository is the code behind the seven chapters of
 [Algorithms Lab](https://github.com/Researcher86/engineering-lab-book/tree/master/algorithms-lab).
-The project is built in phases; Phase 0 is the Docker environment and the
-forward-looking plan lives in [PLAN.md](PLAN.md).
+The project is built in phases; the Docker environment is complete and the
+build journal, including the full plan for the remaining phases, lives in
+[docs/PHASES.md](docs/PHASES.md).
 
 ---
 
@@ -56,15 +57,17 @@ The order is fixed by the book. Implementation follows the same order.
 | 06 | Top-K and Stream Processing | planned |
 | 07 | External Sorting | planned |
 
-Phase 0 is complete when `make build install test analyse format-check` passes
-in the container. The chapters then follow one phase at a time.
+Phase 0 is complete: the container and the three checks run identically
+locally and in CI. Phase 1 adds the foundation and the experiment/benchmark
+harness; the chapters then follow one phase at a time.
 
 ## Documentation
 
-- [PLAN.md](PLAN.md) — the detailed implementation plan (Russian working document).
-- [docs/PHASES.md](docs/PHASES.md) — the build journal; phases, goals and definitions of done.
+- [docs/PHASES.md](docs/PHASES.md) — the build journal and full plan: phases, goals and definitions of done.
 - [docs/DECISIONS.md](docs/DECISIONS.md) — dated technical decisions and trade-offs.
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — how measurements are taken and read.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the harness and module map.
+- [docs/COMPLEXITY.md](docs/COMPLEXITY.md) — theory, counters and measured fits.
 
 ## Project structure
 
