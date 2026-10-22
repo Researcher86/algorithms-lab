@@ -223,7 +223,7 @@ across moves: `hash:load-factor`, `bloom:fpr`, `cache:zipf`, `graph:dijkstra`,
 |---|---|---|---|---|---|
 | 01 | Hash Table and Bloom Filter | HashTable, BloomFilter | ChainingHashTable, OpenAddressingHashTable, BloomFilter | hash:load-factor, hash:collisions, hash:memory, bloom:fpr | hash-table, bloom |
 | 02 | LRU / LFU Cache | Cache | LRUCache, LFUCache, HeapLFU, NaiveLRU, ArrayLRU | cache:zipf, cache:scan, cache:loop, cache:shift, cache:memory | cache |
-| 03 | Graph Algorithms | Graph | AdjacencyList, CsrGraph, Bfs, Dfs, Dijkstra, Kruskal, UnionFind | graph:representations, graph:dijkstra, graph:topo, graph:dsu | graph |
+| 03 | Graph Algorithms | Graph | AdjacencyList, AdjacencyMatrix, EdgeList, CsrGraph, Bfs, Dfs, TopologicalSort, Dijkstra, DijkstraDecreaseKey, BellmanFord, Kruskal, Prim, UnionFind | graph:representations, graph:traversal, graph:dijkstra, graph:topological-sort, graph:dsu | graph |
 | 04 | B-Tree and Search | Tree | BTree, BPlusTree, PageSimulator | tree:height, tree:range, tree:page-reads, tree:insert-patterns | tree |
 | 05 | Consistent Hashing | ConsistentHash | HashRing, RendezvousHash, ModuloHash | ring:remap, ring:balance, ring:replicas | ring |
 | 06 | Top-K and Stream Processing | Stream | TopKHeap, QuickSelect, CountMinSketch, SpaceSaving | stream:top-k, stream:sketch, stream:unique, stream:drift | stream |
@@ -459,25 +459,52 @@ roughly two orders of magnitude slower on hit lookups at 10,000 entries.
 and the loop pathology; capacity 0/1 edges; why PHP's array is a serious
 baseline. Deferred to the book phase.
 
-### Phase 4 — Chapter 03: Graph Algorithms
+### Phase 4 — Chapter 03: Graph Algorithms — code and measurements complete
 
-**Code:** AdjacencyList, AdjacencyMatrix, EdgeList, CsrGraph; BFS, iterative
-DFS, components, topological sort (Kahn and DFS), cycle detection; Dijkstra
-with a custom heap and lazy deletion versus decrease-key; Bellman-Ford;
-Kruskal + UnionFind; Prim; A*, Tarjan SCC and PageRank as stretch; ER, grid,
-BA, path, star and complete generators.
+**Status (2026-10-22):** the implementation, tests, experiments and benchmark
+suite are complete. The book excerpt is deferred to Phase 11, where every
+chapter is written against a tagged release. A*, Tarjan SCC, PageRank and a
+Barabási–Albert generator were not built.
 
-**Experiments:** memory of list/matrix/CSR at several V/E; BFS/DFS on sparse
-versus dense graphs; Dijkstra with a custom heap versus SplPriorityQueue and
-lazy versus decrease-key; Kahn versus DFS topological sort; DSU with and
-without path compression and union by rank; Dijkstra versus Bellman-Ford on
-random graphs.
+**Code:** `src/Graph/Graph.php` and `MutableGraph` for the simple-graph
+contract; `AdjacencyList`, `AdjacencyMatrix`, `EdgeList` and `CsrGraph` for
+the four representations; `Bfs`, `Dfs`, `Components`, `TopologicalSort`,
+`Dijkstra`, `DijkstraDecreaseKey`, `SplDijkstra`, `BellmanFord`, `Kruskal` and
+`Prim` for the algorithms; `GraphGenerator` for path, star, grid, complete,
+random and random-DAG edge lists. `src/Foundation/IndexedMinHeap.php` provides
+the decrease-key heap, and `UnionFind` now exposes path-compression and
+union-by-rank flags plus optional `Counters`.
 
-**Benchmark suite:** graph — BFS/DFS/Dijkstra/topological sort at different
-densities.
+**Expected complexity:** BFS/DFS and topological sort O(V + E); Dijkstra
+O((V + E) log V) with either heap strategy, with the lazy heap allowed more
+than V entries; Bellman-Ford O(VE); Kruskal O(E log E + E α(V)); Prim
+O(E log V); UnionFind O(α(V)) amortized with both optimizations. Adjacency
+list is O(V + E) memory, matrix O(V²), edge list O(E), CSR O(V + E).
+
+**Experiments:** `graph:representations` compares memory, build and BFS reach
+for list/matrix/edge-list/CSR at 1,000 vertices and 4,000 edges;
+`graph:traversal` compares BFS and iterative DFS on sparse/denser graphs;
+`graph:dijkstra` compares lazy, decrease-key, SplPriorityQueue and Bellman-Ford;
+`graph:topological-sort` validates Kahn and DFS on a random DAG and a cycle;
+`graph:dsu` isolates compression and rank on a 10,000-element chain.
+
+**Benchmark suite:** `graph` — BFS/DFS sparse and dense, Dijkstra lazy/
+decrease-key/Spl, Bellman-Ford, Kahn/DFS topological sort, Kruskal and Prim.
+
+**Result:** 255 tests and 26,739 assertions pass; PHPStan level 8 reports no
+errors over 131 files; PHP-CS-Fixer reports no changes. The measured tables and
+conclusions are in [docs/BENCHMARKS.md](BENCHMARKS.md). Main findings: an
+adjacency matrix used 16.0 MiB for 4,000 edges versus 303.1 KiB for CSR; BFS
+and DFS each read exactly `2E` arcs; the lazy Dijkstra popped 894 entries for
+500 vertices while decrease-key popped 500; the naive union-find did 9,999
+node reads per find versus 1 for the optimized variants; and the C-level
+SplPriorityQueue was faster than the PHP heaps despite the same asymptotic
+class. No multi-size time fit is claimed.
 
 **Book:** why representation matters more than the algorithm sometimes; heap
-cost; negative edges; disconnected graphs, self-loops and parallel edges.
+cost; negative edges; disconnected graphs and self-loops; the difference
+between an amortized union-find bound and one expensive find. Deferred to the
+book phase.
 
 ### Phase 5 — Chapter 04: B-Tree and Search
 

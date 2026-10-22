@@ -210,3 +210,111 @@ was made. New decisions are appended with a date.
 - The counter is generic because later chapters (LRU in a database buffer pool,
   graph adjacency structures) can reuse it. Chapter-specific meanings are
   documented where the counter is consumed.
+
+## 2026-10-22 — Graph is a simple graph contract first
+
+- `Graph` is read-only for algorithms; `MutableGraph` adds `addEdge()`. Vertex
+  ids are integers in `[0, vertexCount)`. Edges are weighted by finite floats,
+  self-loops are legal, and adding an existing pair replaces its weight rather
+  than creating a parallel edge.
+- `edges()` returns one canonical edge for an undirected pair (`from <= to`);
+  `neighbors()` returns a map of target to weight and expands undirected edges
+  in both directions. Algorithms therefore do not each re-implement direction
+  handling.
+- A parallel-edge multigraph would need a different edge identity and different
+  algorithm results. It is not hidden inside this interface; the simple-graph
+  restriction is explicit.
+- `EdgeList` keeps the contract by scanning for an existing pair, which makes
+  insertion O(E). That cost is deliberate: a compact edge list is a useful
+  baseline, and pretending it has O(1) updates would make the representation
+  comparison dishonest.
+- `CsrGraph` is immutable and built with `fromEdges()`. It canonicalises and
+  deduplicates the input edge list, then stores offsets, targets and weights in
+  flat arrays. It does not pretend to support incremental inserts.
+
+## 2026-10-22 — Four representations, not one with flags
+
+- `AdjacencyList` is the default: a map per vertex, O(V + E) memory, O(deg)
+  neighbour iteration and expected O(1) edge lookup.
+- `AdjacencyMatrix` is a flat V×V array filled with `NAN` for absence. A
+  separate presence bitmap would make a zero-weight edge easier to explain,
+  but `NAN` is one array and the `is_nan()` check is explicit. The matrix is
+  dense by construction, which is the point of the memory experiment.
+- `EdgeList` is append-and-scan with O(E) neighbour queries and O(E) insertion.
+  It is small on disk/in memory and terrible for repeated neighbourhood walks.
+- `CsrGraph` is the compact read-only layout: two flat arrays plus offsets,
+  built in O(V + E), with O(deg) neighbour iteration. It pays a build pass and
+  gives up updates; it is not presented as a universal replacement for a list.
+
+## 2026-10-22 — Traversals are iterative in PHP
+
+- BFS uses a PHP list plus a head index. `array_shift()` would make a large
+  queue quadratic; `SplQueue` is a valid alternative but adds object overhead
+  and hides the queue mechanics the chapter is explaining.
+- DFS uses explicit enter/exit frames. Recursion would be shorter, but a deep
+  path can exhaust the PHP stack and the exit marker is what gives postorder
+  without a second representation.
+- Components are computed only for undirected graphs. A directed graph has weak
+  and strong components, and silently choosing one would make a meaningful
+  distinction invisible. Tarjan SCC remains a stretch item.
+
+## 2026-10-22 — Two topological sorts and an explicit cycle result
+
+- Kahn's algorithm uses indegrees and a queue; the DFS version uses white/gray/
+  black colors and reverse postorder. Both return `null` when a cycle makes a
+  total order impossible.
+- The experiment validates every edge against the returned order rather than
+  comparing the two orders for equality; topological orders are not unique.
+- The DFS implementation uses an explicit stack instead of recursion for the
+  same reason as traversal: deep DAGs must not depend on the PHP call stack.
+
+## 2026-10-22 — Dijkstra: lazy heap as reference, decrease-key as contrast
+
+- `Dijkstra` uses the Foundation binary heap and lazy deletion: every
+  improvement pushes a new entry; stale entries are discarded on pop. It is the
+  simplest correct implementation and the baseline for the heap comparison.
+- `DijkstraDecreaseKey` uses `IndexedMinHeap`, which stores a vertex-to-index
+  map and lowers a priority in place. The heap holds at most V entries. The
+  experiment reports relaxations and heap pops so the structural difference is
+  visible, not just a timing difference.
+- `SplDijkstra` uses `SplPriorityQueue` with negated distances. It is a
+  language-level baseline; its internal comparisons and memory are not counted
+  by the lab, and it is not treated as proof of a better asymptotic class.
+- Dijkstra rejects any negative edge before searching. Bellman-Ford accepts
+  negative edges, relaxes all edges for up to V−1 passes, and exposes a
+  `negativeCycle` flag instead of throwing away the partial result.
+- All three Dijkstra implementations must agree on distances in tests; the
+  experiment checks the same invariant before printing.
+
+## 2026-10-22 — Kruskal, Prim and union-find variants
+
+- Kruskal requires an undirected graph, sorts edges by weight (with `from`/`to`
+  as deterministic tie-breakers), and returns a forest for a disconnected
+  graph. It is the reference because its union-find work is easy to isolate.
+- Prim starts at one vertex and returns only that component's tree. It is not
+  silently promoted to a forest; the start component is part of the API.
+- Both MST algorithms reject directed graphs: a minimum spanning arborescence
+  is a different problem and would need a different implementation.
+- `UnionFind` now accepts `pathCompression`, `unionByRank` and an optional
+  `Counters`. The defaults preserve the original behavior. The experiment
+  builds the same chain for every variant and resets the counter after the
+  unions, so the reads belong to the measured finds.
+- Without union by rank, `union($right, $left)` always attaches the right root
+  to the left root. The DSU experiment chooses the union order that makes this
+  a deliberately deep chain; a random order would hide the worst case.
+
+## 2026-10-22 — Graph experiments ask one question each
+
+- `graph:representations` holds the edge list fixed and compares memory, build
+  time and BFS reach across list/matrix/edge-list/CSR.
+- `graph:traversal` compares BFS and iterative DFS on sparse and denser random
+  graphs; `nodeReads` should equal `2E` for an undirected graph.
+- `graph:dijkstra` compares lazy, decrease-key, SplPriorityQueue and
+  Bellman-Ford on one positive weighted graph.
+- `graph:topological-sort` validates Kahn and DFS orders on a random DAG and
+  rejects a synthetic cycle.
+- `graph:dsu` isolates path compression and union by rank on a chain.
+- The missing A*, Tarjan SCC, PageRank and Barabási–Albert generator are listed
+  as stretch work rather than implied by the chapter. No multi-size time fit is
+  claimed; the graph benchmark is a fixed-size suite, and the counters carry
+  the asymptotic argument.

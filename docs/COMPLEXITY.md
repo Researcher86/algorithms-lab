@@ -214,10 +214,95 @@ invariant; the O(n) naive claim is visible in the time comparison and in its
 per-scan comparison counter. A future multi-capacity sweep could add a fit, but
 it is not presented as if it already exists.
 
+## Chapter 03 — Graph algorithms
+
+### Expected complexity
+
+| Structure or algorithm | Time | Extra memory |
+|---|---|---|
+| AdjacencyList | add/weight expected O(1); neighbours O(deg); edges O(E) | O(V + E) |
+| AdjacencyMatrix | add/has/weight O(1); neighbours/edges O(V) | O(V²) |
+| EdgeList | add O(E) to keep the graph simple; neighbours O(E); edges O(E) | O(E) |
+| CsrGraph | build O(V + E); neighbours O(deg); edges O(V + E) | O(V + E) |
+| BFS / iterative DFS | O(V + E) | O(V) |
+| Kahn / DFS topological sort | O(V + E) | O(V + E) including the graph |
+| Dijkstra, lazy heap | O((V + E) log V); the heap can hold more than V entries | O(V + E) |
+| Dijkstra, indexed decrease-key | O((V + E) log V); the heap holds at most V entries | O(V + E) |
+| Bellman-Ford | O(VE) | O(V) |
+| Kruskal | O(E log E + E α(V)) | O(V + E) |
+| Prim | O(E log V) | O(V + E) |
+| UnionFind, compression + rank | O(α(V)) amortized per operation | O(V) |
+
+The graph is simple: an existing pair is replaced, not duplicated. Self-loops
+are legal; an undirected self-loop contributes one edge and one arc. An
+undirected edge contributes two arcs to traversal, which is why the traversal
+counter is `2E`.
+
+The Dijkstra bound uses a binary heap; a Fibonacci heap would change the
+decrease-key bound but is not implemented. The EdgeList insertion bound is the
+reason it is a baseline, not a default. The adjacency matrix's O(1) edge lookup
+is not worth O(V²) memory for a sparse graph.
+
+### Counter evidence
+
+`graph:traversal` uses `Counters::nodeReads` for every neighbour examined. For
+an undirected graph with E edges, both BFS and DFS read exactly `2E` arcs:
+6,000 for E = 3,000 and 16,000 for E = 8,000. That is direct evidence for
+O(V + E) traversal, not an inference from wall-clock time.
+
+`graph:dijkstra` records both successful relaxations and heap pops. On 500
+vertices and 2,000 edges:
+
+| algorithm | relaxations | heap pops |
+|---|---:|---:|
+| lazy binary heap | 893 | 894 |
+| decrease-key | 893 | 500 |
+| SplPriorityQueue | 888 | 889 |
+| Bellman-Ford | 2,068 | 0 |
+
+The lazy heap popped more entries than there are vertices because stale
+improvements remain until extracted. The decrease-key heap popped exactly one
+entry per reached vertex, which is the structural property its O(V) heap bound
+describes. Bellman-Ford's relaxation count is higher because it relaxes every
+edge repeatedly; the exact count depends on how quickly a pass stops changing.
+
+`graph:dsu` counts parent reads rather than time. On a 10,000-element chain and
+1,000 finds, the naive variant performed 9,999 reads per find; union by rank
+alone performed 1; compression alone averaged 21 because the first find paid
+for the whole path and the rest were cheap. The counter explains why the
+amortized bound is not the same as the worst single find.
+
+### Measured memory and time
+
+At 1,000 vertices and 4,000 edges, `graph:representations` measured 527.3 KiB
+for an adjacency list, 16.0 MiB for a matrix, 455.5 KiB for an edge list and
+303.1 KiB for CSR. The matrix is the outlier because its V² allocation does not
+depend on E. The EdgeList build took 101.9 ms because insertion is O(E); the
+CSR build took 1.8 ms because it is a single O(V + E) pass.
+
+The graph benchmark measures BFS/DFS, the three Dijkstra implementations,
+Bellman-Ford, both topological sorts, Kruskal and Prim. The full table is in
+[`docs/BENCHMARKS.md`](BENCHMARKS.md). Two results are worth keeping in mind:
+the C-level SplPriorityQueue was faster than both PHP heaps despite the same
+asymptotic class, and Kruskal beat this PHP Prim by about 8.7× on the measured
+graph because Prim's candidate heap dominates its runtime. Neither is a
+portable algorithm ranking.
+
+### What is not claimed
+
+There is no multi-size time fit for Chapter 03. The experiments fix one V/E
+point per question, and the benchmark suite fixes one graph per operation. The
+counters and memory tables support the asymptotic claims; a slope estimated
+from one size would not. A*, Tarjan SCC, PageRank and a Barabási–Albert
+generator are stretch items and were not built, so the chapter makes no claims
+about them.
+
 ## Status
 
 Phase 1 defines the instrumentation and the fit helper. Chapter 01 publishes
 measured counters and memory; its time suite has one size, so it does not claim
 a time fit. Chapter 02 adds a counter-backed O(1) pointer claim and measured
-hit-ratio behavior, but also has one benchmark size. Later chapters add
-multi-size fits where the question requires one.
+hit-ratio behavior, but also has one benchmark size. Chapter 03 adds graph
+representation memory, exact traversal counters, heap-pop evidence for
+Dijkstra and union-find read counts, still with one size per question. Later
+chapters add multi-size fits where the question requires one.

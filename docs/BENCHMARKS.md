@@ -54,16 +54,23 @@ make experiment ARGS="cache:loop --seed=book"
 make experiment ARGS="cache:shift --seed=book"
 make experiment ARGS="cache:memory --seed=book"
 
+make experiment ARGS="graph:representations --seed=book"
+make experiment ARGS="graph:traversal --seed=book"
+make experiment ARGS="graph:dijkstra --seed=book"
+make experiment ARGS="graph:topological-sort --seed=book"
+make experiment ARGS="graph:dsu"
+
 make benchmark ARGS="demo"
 make benchmark ARGS="hash-table --repetitions=5"
 make benchmark ARGS="bloom --repetitions=5"
 make benchmark ARGS="cache --repetitions=5"
+make benchmark ARGS="graph --repetitions=5"
 make benchmark ARGS="hash-table --format=json --output=var/results/hash-table.json"
 ```
 
 Every suite records the environment block. Text is for reading, JSON for
 keeping, CSV for comparing runs in a spreadsheet. The `demo` suite is the
-smoke test; `hash-table`, `bloom` and `cache` are the chapter suites.
+smoke test; `hash-table`, `bloom`, `cache` and `graph` are the chapter suites.
 
 ## Container numbers
 
@@ -345,3 +352,161 @@ for comparing policies on one machine; they are not portable constants.
   its own worst-case behavior.
 - HeapLFU trades pointer maintenance for heap maintenance and lazy records.
   It is a useful comparison, not a recommendation for a small cache.
+
+### Chapter 03 — Graph Algorithms
+
+These are development numbers, not the book's reference measurements. They
+were taken in Docker on macOS at commit `a9e09ef`; the harness printed:
+
+```text
+PHP 8.5.11 on Linux 7.0.14-linuxkit, aarch64 x 12, memory_limit 512M, cgroup unlimited
+OPcache off, JIT off, Xdebug off, allocator Zend MM
+```
+
+The graph is generated once per experiment and then loaded into each
+representation or algorithm. Absolute timings are noisy on the virtualized
+Linux host; the operation counts and the shape of the results are the durable
+part.
+
+#### Representations
+
+`make experiment ARGS="graph:representations --seed=book"`. The same 1,000
+vertices and 4,000 undirected weighted edges are loaded into each
+representation; BFS starts at vertex 0.
+
+| representation | PHP memory | bytes/vertex | build | BFS seen |
+|---|---:|---:|---:|---:|
+| AdjacencyList | 527.3 KiB | 540.0 | 1.433 ms | 999 |
+| AdjacencyMatrix | 16.0 MiB | 16,795.2 | 2.401 ms | 999 |
+| EdgeList | 455.5 KiB | 466.5 | 101.907 ms | 999 |
+| CsrGraph | 303.1 KiB | 310.4 | 1.758 ms | 999 |
+
+The random graph contains one isolated vertex, so BFS reaches 999 of 1,000
+vertices in every representation. The matrix pays for V² cells even though only
+4,000 edges exist. CSR is the smallest because it stores flat target and weight
+arrays plus offsets instead of a map per vertex. EdgeList is compact at rest but
+its `addEdge()` scans the existing list to keep the graph simple, which makes
+the build quadratic at this size. The matrix build is fast because writing V²
+cells is cheap compared with the EdgeList scan; memory is the matrix's problem,
+not its insert cost.
+
+#### Traversal
+
+`make experiment ARGS="graph:traversal --seed=book"`:
+
+| graph | V | E | BFS | DFS | BFS max distance | components | neighbour reads |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| sparse | 1,000 | 3,000 | 0.473 ms | 0.932 ms | 7 | 3 | 6,000 |
+| denser | 1,000 | 8,000 | 0.457 ms | 1.618 ms | 4 | 1 | 16,000 |
+
+Each undirected edge is read from both endpoints, so both traversals report
+exactly `2E` neighbour reads: 6,000 for 3,000 edges and 16,000 for 8,000. That
+is the counter evidence for O(V + E), independent of the timing noise. BFS on
+the denser graph is slightly faster in this run even though it reads more arcs;
+the graph has one component and the queue traversal is cheap compared with the
+extra isolated-component work in the sparse case. Do not read a density trend
+into one virtualized sample.
+
+#### Dijkstra variants
+
+`make experiment ARGS="graph:dijkstra --seed=book"`, 500 vertices, 2,000
+undirected edges, positive weights 1–100, source 0:
+
+| algorithm | time | relaxations | heap pops | node reads |
+|---|---:|---:|---:|---:|
+| lazy binary heap | 4.289 ms | 893 | 894 | 894 |
+| indexed heap, decrease-key | 2.142 ms | 893 | 500 | 500 |
+| SplPriorityQueue | 0.720 ms | 888 | 889 | 0 |
+| Bellman-Ford | 3.881 ms | 2,068 | 0 | 0 |
+
+The lazy heap popped 894 entries for 500 vertices: the extra entries are stale
+improvements that were skipped. The decrease-key heap popped exactly one entry
+per reached vertex and held at most V entries. Both produced the same distance
+to vertex 499, 140.00. SplPriorityQueue is much faster here because its heap is
+implemented in C, not because its asymptotic behavior is better; it is a
+language baseline and its internal comparisons are not counted. Bellman-Ford
+has no heap but performs repeated full edge passes; on this small positive
+graph it is close to the PHP-level Dijkstra, while its O(VE) worst case appears
+when V grows and the graph stays dense.
+
+#### Topological sort
+
+`make experiment ARGS="graph:topological-sort --seed=book"`, a random DAG with
+1,000 vertices and 4,000 edges:
+
+| algorithm | time | order length | valid |
+|---|---:|---:|---:|
+| Kahn | 0.832 ms | 1,000 | yes |
+| DFS | 0.447 ms | 1,000 | yes |
+
+The experiment checks every edge against the returned order instead of
+comparing the two orders for equality; a DAG has many valid topological sorts.
+Both algorithms also reject the synthetic cycle `0→1→2→0` and return null.
+
+#### Union-find variants
+
+`make experiment ARGS="graph:dsu"`, 10,000 elements and 1,000 finds after a
+deliberately deep chain:
+
+| variant | time | node reads/find | total reads |
+|---|---:|---:|---:|
+| compression + rank | 0.123 ms | 1.00 | 1,000 |
+| compression only | 1.213 ms | 20.996 | 20,996 |
+| rank only | 0.103 ms | 1.00 | 1,000 |
+| naive | 472.805 ms | 9,999.00 | 9,999,000 |
+
+Compression-only is dominated by the first find, which walks and rewrites the
+whole chain; subsequent finds are cheap, so the average is 21 reads per find.
+Union by rank alone keeps the chain shallow and needs one read per find. The
+naive variant pays the full path on every find. This is the chapter's clearest
+example of an amortized result: one expensive operation can be a good deal if
+it makes the following operations cheap.
+
+#### Time
+
+`make benchmark ARGS="graph --repetitions=5"`. The median is the time for the
+whole inner batch of `iterations` operations, so the per-operation cost is the
+median divided by `iterations`.
+
+| benchmark | iterations | median | ops/sec |
+|---|---:|---:|---:|
+| bfs-sparse | 200 | 44.265 ms | 4,518 |
+| dfs-sparse | 200 | 162.659 ms | 1,229 |
+| bfs-dense | 100 | 56.474 ms | 1,770 |
+| dfs-dense | 100 | 269.785 ms | 370 |
+| dijkstra-lazy | 50 | 159.753 ms | 312 |
+| dijkstra-decrease-key | 50 | 87.042 ms | 574 |
+| dijkstra-spl | 50 | 27.154 ms | 1,841 |
+| bellman-ford | 5 | 17.088 ms | 292 |
+| topo-kahn | 200 | 125.820 ms | 1,589 |
+| topo-dfs | 200 | 93.992 ms | 2,127 |
+| kruskal | 50 | 104.786 ms | 477 |
+| prim | 50 | 914.798 ms | 54 |
+
+The iterative DFS is slower than BFS in PHP because it stores enter/exit
+frames and calls `array_keys()` per visited vertex; that is a constant-factor
+cost, not a different asymptotic class. The decrease-key Dijkstra is about
+1.8× faster than the lazy heap in this batch, while the C-level
+SplPriorityQueue is faster still. Kruskal beats the PHP Prim implementation by
+roughly 8.7× on this graph: Kruskal sorts 2,000 edges once and then does nearly
+linear union-find work, while Prim pushes and pops candidate edges through a
+PHP-level heap. The comparison is implementation-aware, not a claim that
+Kruskal is always the better algorithm.
+
+#### What the chapter concludes
+
+- Representation is a memory decision first: an adjacency matrix costs V² even
+  when E is small; CSR and a list cost O(V + E).
+- BFS and DFS both read each undirected arc from both endpoints. The measured
+  `2E` counter is stronger evidence than a single timing.
+- Lazy Dijkstra is simpler but can pop more entries than there are vertices;
+  decrease-key bounds the heap at V. SplPriorityQueue is a useful C baseline,
+  not a replacement for the measured implementation.
+- Bellman-Ford is the reference when negative edges are possible, and the
+  negative-cycle flag is part of its result rather than an exception.
+- Kahn and DFS topological sorts both work; DFS is cheaper here, while Kahn's
+  indegree queue is easier to explain and to instrument.
+- Path compression and union by rank solve different parts of the union-find
+  problem; the naive variant is not merely a little slower on a bad input.
+- A*, Tarjan SCC, PageRank and a Barabási–Albert generator were not built in
+  this phase. They remain stretch material, not implied results.

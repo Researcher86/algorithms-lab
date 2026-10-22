@@ -29,7 +29,7 @@ experiments/NN-topic/*.php          benchmarks/*.php
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| Foundation | Data structures and small primitives with no I/O: heap, bit array, hashers, comparator, seeded random, Zipf sampler, union-find | nothing |
+| Foundation | Data structures and small primitives with no I/O: binary heap, indexed min-heap, bit array, hashers, comparator, seeded random, Zipf sampler, union-find | nothing |
 | Instrumentation | Counters, stopwatch, memory meter and the Measure facade | Foundation |
 | Experiment | Descriptor, discovery, option validation, output, runner | Instrumentation |
 | Benchmark | Descriptor, repetitions, timings, environment, formatters | Instrumentation |
@@ -99,6 +99,19 @@ not an algorithm.
   skewed request sequences.
 - Cache experiments are `cache:zipf`, `cache:scan`, `cache:loop`,
   `cache:shift` and `cache:memory`; the benchmark suite is `cache`.
+- Chapter 03 lives in `src/Graph/`. `Graph` and `MutableGraph` are the contract;
+  `AdjacencyList`, `AdjacencyMatrix`, `EdgeList` and `CsrGraph` are the four
+  representations; `Bfs`, `Dfs`, `Components`, `TopologicalSort`, `Dijkstra`,
+  `DijkstraDecreaseKey`, `SplDijkstra`, `BellmanFord`, `Kruskal` and `Prim`
+  are the algorithms. `GraphGenerator` is the only place that knows how to
+  build path, star, grid, complete, random and random-DAG edge lists.
+- Graph experiments are `graph:representations`, `graph:traversal`,
+  `graph:dijkstra`, `graph:topological-sort` and `graph:dsu`; the benchmark
+  suite is `graph`.
+- `src/Foundation/IndexedMinHeap.php` is the decrease-key heap used by
+  `DijkstraDecreaseKey`; `UnionFind` accepts path-compression and union-by-rank
+  flags plus an optional `Counters`, which is what makes the DSU experiment a
+  controlled comparison instead of four copies of the same code.
 - `experiments/` — one runnable question per file, grouped by chapter.
 - `benchmarks/` — one suite per file, grouped by topic.
 
