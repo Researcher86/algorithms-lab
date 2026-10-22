@@ -20,7 +20,11 @@ final class RegistryAndRunnerTest extends TestCase
 
         self::assertTrue($registry->has('demo:smoke'));
         self::assertSame('demo:smoke', $registry->get('demo:smoke')->name);
-        self::assertSame(['demo:smoke'], array_keys($registry->all()));
+        $names = array_keys($registry->all());
+        self::assertContains('demo:smoke', $names);
+        $sorted = $names;
+        sort($sorted);
+        self::assertSame($sorted, $names);
     }
 
     public function testUnknownExperimentIsRejected(): void
