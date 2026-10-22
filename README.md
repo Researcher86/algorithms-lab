@@ -8,8 +8,8 @@
 
 This repository is the code behind the seven chapters of
 [Algorithms Lab](https://github.com/Researcher86/engineering-lab-book/tree/master/algorithms-lab).
-The project is built in phases; the Docker environment is complete and the
-build journal, including the full plan for the remaining phases, lives in
+The Docker environment and the measurement harness are complete; the build
+journal, including the full plan for the chapters, lives in
 [docs/PHASES.md](docs/PHASES.md).
 
 ---
@@ -22,6 +22,14 @@ Requires Docker. Nothing is installed on the host.
 make build       # build the php:8.5-cli image with the project extensions
 make install     # composer install inside the container
 make test        # PHPUnit
+```
+
+The harness has one demo of each entry point:
+
+```bash
+make experiment                              # list the experiments
+make experiment ARGS="demo:smoke"            # run one
+make benchmark ARGS="demo"                   # text report with environment
 ```
 
 The other two gates CI runs:
@@ -57,9 +65,9 @@ The order is fixed by the book. Implementation follows the same order.
 | 06 | Top-K and Stream Processing | planned |
 | 07 | External Sorting | planned |
 
-Phase 0 is complete: the container and the three checks run identically
-locally and in CI. Phase 1 adds the foundation and the experiment/benchmark
-harness; the chapters then follow one phase at a time.
+Phase 0 and Phase 1 are complete: the container, the foundation, the
+instrumentation and the experiment/benchmark harness all run through
+`make check` locally and in CI. Chapter 01 is next.
 
 ## Documentation
 
@@ -73,7 +81,7 @@ harness; the chapters then follow one phase at a time.
 
 ```text
 algorithms-lab/
-├── bin/                  # experiment and benchmark entry points (Phase 1)
+├── bin/                  # experiment and benchmark entry points
 ├── src/                  # implementations, instrumentation, harness
 ├── experiments/          # one runnable experiment per question
 ├── benchmarks/           # repeated measurements per topic
@@ -87,9 +95,13 @@ algorithms-lab/
 └── composer.json
 ```
 
-The first real code in the repository is
-`src/Foundation/DeterministicRandom.php`, the seeded generator the datasets
-will use. It is covered by `tests/Foundation/DeterministicRandomTest.php`.
+The foundation primitives live under `src/Foundation/`: the seeded
+`DeterministicRandom`, a comparison-counting `Comparator`, a binary heap, a bit
+array, the hashers and union-find. `src/Instrumentation/` adds counters,
+`hrtime` stopwatches, a PHP-memory meter, the `Measure` facade and a log-log
+complexity fit. The experiment and benchmark entry points are discoverable:
+drop a descriptor under `experiments/` or `benchmarks/` and it appears in the
+list without editing a central registry.
 
 ## How this project relates
 

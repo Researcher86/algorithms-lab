@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AlgorithmsLab\Tests;
 
+use AlgorithmsLab\Experiment\Registry;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -80,6 +81,50 @@ final class DocumentationTest extends TestCase
     private function documents(): array
     {
         return glob(self::ROOT . '/docs/*.md') ?: [];
+    }
+
+    /**
+     * Every experiment named in a documented command must still be
+     * discoverable by the registry.
+     */
+    public function testEveryExperimentCommandInTheDocsExists(): void
+    {
+        $registry = new Registry(self::ROOT . '/experiments');
+
+        foreach ([...$this->documents(), self::ROOT . '/README.md'] as $document) {
+            $matches = [];
+            preg_match_all(
+                '/make experiment ARGS="([a-z]+:[a-z-]+)/',
+                (string) file_get_contents($document),
+                $matches,
+            );
+
+            foreach (array_unique($matches[1]) as $name) {
+                self::assertTrue(
+                    $registry->has($name),
+                    sprintf('%s tells the reader to run %s, which no longer exists', basename($document), $name),
+                );
+            }
+        }
+    }
+
+    public function testEveryBenchmarkSuiteInTheDocsExists(): void
+    {
+        foreach ([...$this->documents(), self::ROOT . '/README.md'] as $document) {
+            $matches = [];
+            preg_match_all(
+                '/make benchmark\s+ARGS="([a-z]+)/',
+                (string) file_get_contents($document),
+                $matches,
+            );
+
+            foreach (array_unique($matches[1]) as $suite) {
+                self::assertFileExists(
+                    self::ROOT . '/benchmarks/' . $suite . '.php',
+                    sprintf('%s names benchmark suite %s, which does not exist', basename($document), $suite),
+                );
+            }
+        }
     }
 
     /**

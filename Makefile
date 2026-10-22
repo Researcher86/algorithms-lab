@@ -1,4 +1,5 @@
-.PHONY: up down build shell htop install test analyse format format-check check
+.PHONY: up down build shell htop install test analyse format format-check check \
+        experiment experiment-debug benchmark benchmark-debug
 
 # CI has no terminal to attach to (GitHub Actions sets CI=true), so exec runs
 # without one there; locally it keeps the TTY for colours and interactive use.
@@ -35,3 +36,18 @@ format-check: up
 	docker compose exec $(TTY) php composer format:check
 
 check: test analyse format-check
+
+experiment: up
+	docker compose exec $(TTY) php php bin/experiment $(ARGS)
+
+benchmark: up
+	docker compose exec $(TTY) php php bin/benchmark $(ARGS)
+
+# Xdebug is installed with mode=off, so a debug run has to switch the mode as
+# well as raise the trigger. Point the IDE at port 9003 first; without a
+# listener the connection attempt times out and the run continues.
+experiment-debug: up
+	docker compose exec $(TTY) php bash -c "XDEBUG_MODE=debug XDEBUG_TRIGGER=1 php bin/experiment $(ARGS)"
+
+benchmark-debug: up
+	docker compose exec $(TTY) php bash -c "XDEBUG_MODE=debug XDEBUG_TRIGGER=1 php bin/benchmark $(ARGS)"

@@ -2,4 +2,7 @@ parameters:
     level: 8
     paths:
         - src
+        - bin
         - tests
+        - experiments
+        - benchmarks

@@ -1,6 +1,6 @@
 # Benchmarks: How They Are Run, and How to Read Them
 
-The harness is built in Phase 1. This document is the contract it must satisfy;
+The harness was built in Phase 1. This document is the contract it satisfies;
 the measured tables are appended as each chapter lands.
 
 ## The rule
@@ -37,15 +37,22 @@ comparisons, probes, collisions, node reads, rehashes, relinks. Complexity
 claims are backed by counters; benchmark tables are backed by time and memory.
 Both are reported, never mixed into one number.
 
-## Commands (Phase 1)
+## Commands
 
 ```bash
-make benchmark ARGS="hash-table"
-make benchmark ARGS="cache --repetitions=9"
-make benchmark ARGS="graph --format=json --output=var/results/graph.json"
+make experiment                                  # list every experiment
+make experiment ARGS="demo:smoke"
+make experiment ARGS="demo:smoke --elements=100000 --seed=book"
+
+make benchmark ARGS="demo"
+make benchmark ARGS="demo --repetitions=9"
+make benchmark ARGS="demo --format=json --output=var/results/demo.json"
 ```
 
-Every suite records the environment block and can emit text, JSON or CSV.
+Every suite records the environment block. Text is for reading, JSON for
+keeping, CSV for comparing runs in a spreadsheet. The chapter suites
+(`hash-table`, `cache`, `graph`, and the rest) are added when their chapters
+land; the demo suite is the one that exists from Phase 1.
 
 ## Container numbers
 

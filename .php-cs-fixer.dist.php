@@ -9,11 +9,11 @@ declare(strict_types=1);
  * would prefix every internal call with a backslash, and single_line_empty_body
  * would collapse an empty constructor onto one line - neither is how these
  * projects are written by hand.
- *
- * bin/, experiments/ and benchmarks/ join the finder in Phase 1, when those
- * directories contain their first real files.
  */
 $finder = PhpCsFixer\Finder::create()
+    ->in(__DIR__ . '/benchmarks')
+    ->in(__DIR__ . '/bin')
+    ->in(__DIR__ . '/experiments')
     ->in(__DIR__ . '/src')
     ->in(__DIR__ . '/tests');
 

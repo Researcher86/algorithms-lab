@@ -47,7 +47,7 @@ engineering-lab/                     # workspace, not a git repository
    `v1.0.0` tag, never a branch. The repository is public.
 4. **Languages.** Code, comments, README and `docs/` are English. Book
    chapters are Russian.
-5. **One command per experiment.** `make experiment ARGS="hash:load-factor"`
+5. **One command per experiment.** `make experiment ARGS="demo:smoke"`
    is the interface the book can quote.
 6. **The book is checked mechanically.** The book checker must learn seven
    chapters for this project; it currently assumes the 26 chapters of
@@ -294,9 +294,9 @@ One way to run an experiment and one way to measure, before the first topic.
 
 ### Foundation
 
-- BinaryHeap — min/max, comparator, lazy deletion.
+- BinaryHeap — min/max with a comparator.
 - BitArray — bit storage with get/set/popcount.
-- Hashers — FNV-1a, Murmur3, xxh128, crc32; mask vs modulo.
+- Hashers — FNV-1a, Murmur3, xxh128, crc32.
 - DeterministicRandom — seeded PRNG; already present.
 - Comparator — comparison wrapper with a counter.
 - UnionFind — path compression and union by rank.
@@ -314,7 +314,7 @@ One way to run an experiment and one way to measure, before the first topic.
 - Experiment — readonly descriptor: name, description, supports, closure.
 - Registry — discovers `experiments/*/*.php`, requires an Experiment, refuses
   duplicate names, sorts.
-- ExperimentRunner — validates options, creates output, runs the closure.
+- ExperimentRunner — validates options, runs the closure, records the result.
 - Options — only declared options; an unknown option is an error, never
   silently ignored.
 - Output — prose to stdout, measurements collected for JSON; `--output` only
@@ -355,7 +355,7 @@ One way to run an experiment and one way to measure, before the first topic.
 - Foundation: heap ordering, bit boundaries, hash vectors, union-find
   invariants, comparator counts.
 - Instrumentation: counter reset and increments, stopwatch monotonicity,
-  memory snapshot shape.
+  memory snapshot shape, complexity-fit exponents and invalid input.
 - CLI: command/option parsing, invalid values, refusal of unknown options.
 - Experiment: registry discovery, option validation, text and JSON output.
 - Benchmark: timings distribution, runner repetition counts, environment

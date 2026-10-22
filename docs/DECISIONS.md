@@ -72,3 +72,41 @@ was made. New decisions are appended with a date.
 
 - As in `php-memory-lab`: `composer.json` declares MIT; the repository does not
   carry a separate `LICENSE` file.
+
+## 2026-10-22 — Descriptors and closures for the harness
+
+- An experiment is a readonly `Experiment` returned by a file under
+  `experiments/`; a benchmark is a readonly `Benchmark` returned in a list from
+  `benchmarks/`. There is no base class and no central registry.
+- Discovery keeps the list honest when files move, and descriptors stay cheap
+  because the work lives in a closure that only the runner invokes.
+- The alternative — abstract `run()` methods — would make every demo and
+  chapter file longer for no shared behavior.
+
+## 2026-10-22 — Unknown experiment options are refused
+
+- `Options` is a closed set shared by every experiment; the runner checks it
+  against the experiment's declared `supports` list.
+- Silently ignoring `--capacity` in an experiment that never reads it is how a
+  result gets published under a configuration it did not run with. The error
+  names both the bad option and the options that would work.
+
+## 2026-10-22 — Medians and spread, not a single timing
+
+- A benchmark runs warm-ups, then repeated measurements; the report carries
+  min, max, mean, median, p95 and median absolute deviation, and ops/sec is
+  derived from the median.
+- The median is the headline because one repetition can lose its CPU slice.
+  The spread is not optional: with five samples, a p95 is a coarse statement
+  and the report says so instead of implying precision.
+- Memory is reported as a PHP-allocator delta (`php_delta_bytes`), not RSS.
+  Chapters that involve shared or native memory will add the second view
+  rather than rename this one.
+
+## 2026-10-22 — The log-log fit is the only complexity fit
+
+- `ComplexityFit::powerLaw()` performs ordinary least squares on logarithms and
+  reports slope, intercept, R² and sample count.
+- A single power law is easy to explain and easy to falsify. `n log n` will be
+  tested with an explicit model in the chapters that need it; the fit is never
+  presented as proof of an asymptotic class.
