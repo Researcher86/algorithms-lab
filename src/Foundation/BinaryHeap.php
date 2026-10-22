@@ -15,7 +15,12 @@ use UnderflowException;
  */
 final class BinaryHeap
 {
-    /** @var list<mixed> */
+    /**
+     * Sequential by construction; typed as a plain int-keyed array because
+     * PHPStan cannot prove list-ness through every in-place swap.
+     *
+     * @var array<int, mixed>
+     */
     private array $values = [];
 
     public function __construct(
@@ -121,8 +126,6 @@ final class BinaryHeap
 
     private function swap(int $left, int $right): void
     {
-        $value = $this->values[$left];
-        $this->values[$left] = $this->values[$right];
-        $this->values[$right] = $value;
+        [$this->values[$left], $this->values[$right]] = [$this->values[$right], $this->values[$left]];
     }
 }
