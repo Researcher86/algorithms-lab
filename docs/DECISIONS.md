@@ -110,3 +110,38 @@ was made. New decisions are appended with a date.
 - A single power law is easy to explain and easy to falsify. `n log n` will be
   tested with an explicit model in the chapters that need it; the fit is never
   presented as proof of an asymptotic class.
+
+## 2026-10-22 — Chaining and open addressing are both first-class
+
+- The chapter keeps `ChainingHashTable` as the readable baseline and
+  `OpenAddressingHashTable` as the memory-conscious alternative. Neither is
+  presented as the winner; the experiments report probes, memory and timing.
+- Chaining supports a fixed-capacity mode for the distribution experiment.
+  Automatic resizing remains the default, and the mode is explicit in the
+  constructor rather than hidden in a benchmark.
+- Open addressing keeps its capacity a power of two. Quadratic probing uses
+  triangular offsets (`i(i+1)/2`), which cover every slot for a power-of-two
+  capacity; double hashing uses an odd step for the same reason.
+- A tombstone is not an empty slot: unsuccessful searches continue past it, and
+  insertions remember the first tombstone but keep probing for an existing key.
+
+## 2026-10-22 — Bloom parameters are reported three ways
+
+- The filter computes `m` and `k` from the expected item count and target rate,
+  then reports target, estimated and measured false-positive rates separately.
+- The estimated rate comes from the actual fill; the measured rate comes from
+  a deterministic set of absent queries. Printing only the target would hide a
+  sizing bug, and printing only the measured rate would imply more statistical
+  precision than one sample has.
+- Double hashing derives all positions from two independent hashes. The filter
+  cannot delete or enumerate keys; that limitation is part of the chapter, not
+  an implementation detail to paper over.
+
+## 2026-10-22 — PHPStan always starts from a fresh file cache
+
+- PHPStan 2.3's result cache can keep a stale file list when new directories
+  appear after an earlier run. `clear-result-cache` did not remove the cached
+  file map in this project; `composer analyse` therefore removes
+  `/tmp/phpstan` before analysis.
+- At this repository's size a fresh analysis takes seconds, and a local green
+  run that silently skipped new files is worse than the cost.

@@ -378,26 +378,43 @@ Every chapter follows the same definition of done:
 8. `make test analyse format-check` green; this document updated.
 9. One logical commit plus review fix-ups.
 
-### Phase 2 — Chapter 01: Hash Table and Bloom Filter
+### Phase 2 — Chapter 01: Hash Table and Bloom Filter — code and measurements complete
 
-**Code:** ChainingHashTable, OpenAddressingHashTable with linear, quadratic and
-double probing, tombstones and resize; RobinHoodHashTable as a stretch;
-BloomFilter with `optimal(n, p)` and double hashing; CountingBloomFilter as a
-stretch.
+**Status (2026-10-22):** the implementation, tests, experiments and benchmark
+suites are complete. The book excerpt is deferred to Phase 11, where every
+chapter is written against a tagged release. The stretch tables were not built.
+
+**Code:** `src/HashTable/ChainingHashTable.php`,
+`src/HashTable/OpenAddressingHashTable.php` with linear, quadratic (triangular)
+and double probing, tombstones and resize; `src/HashTable/HashFunction.php`
+for named hash functions; `src/HashTable/Entry.php`;
+`src/BloomFilter/BloomFilter.php` with optimal `m`/`k` and double hashing.
+Robin Hood hashing and Counting Bloom were left as optional stretch work.
 
 **Expected complexity:** put/get/remove O(1) average, O(n) worst; Bloom
 add/check O(k), memory O(m).
 
-**Experiments:** load factor α = 0.5/0.75/0.9 and probes on hit/miss;
-collision-heavy keys across hash functions; bytes per key against a PHP array;
-amortized rehash; measured Bloom false-positive rate against p = 1/5/10% and
-the optimal k; Bloom versus a hash set at the same false-positive rate.
+**Experiments:** `hash:load-factor` at α = 0.5/0.75/0.9 with hit and miss
+probes; `hash:collisions` across FNV-1a, xxh128, CRC32 and Murmur3;
+`hash:memory` against a PHP array; `bloom:fpr` at p = 1/5/10% with the
+estimated rate and optimal k. Amortized-rehash and Bloom-versus-hash-set
+experiments remain optional extensions.
 
-**Benchmark suites:** hash-table (insert/get/delete at N = 1e3…1e6, chaining
-versus open addressing, α sweep) and bloom (add/check, N and p sweep).
+**Benchmark suites:** `hash-table` (chaining/open-addressing get and 1,000-key
+insert) and `bloom` (add, hit-check, miss-check). The development run uses
+10,000 keys; the 1e6-key sweep belongs to the book run, not the test suite.
+
+**Result:** 133 tests and 19,578 assertions pass; PHPStan level 8 reports no
+errors over 70 files; PHP-CS-Fixer reports no changes; both JSON experiment and
+benchmark outputs validate. The measured tables and conclusions are in
+[docs/BENCHMARKS.md](BENCHMARKS.md). The main findings are a 116-probe linear
+miss at α = 0.90, open addressing at 81 bytes/key versus chaining at 155.9,
+and Bloom false-positive rates of 0.0118 / 0.0520 / 0.1059 for targets
+0.01 / 0.05 / 0.10.
 
 **Book:** why a PHP array is already a hash table; chaining versus open
-addressing; the price of collisions; false positives and memory.
+addressing; the price of collisions; false positives and memory. Deferred to
+the book phase.
 
 ### Phase 3 — Chapter 02: LRU / LFU Cache
 

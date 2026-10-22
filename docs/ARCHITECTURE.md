@@ -85,6 +85,8 @@ not an algorithm.
 - `src/Cli/` — argument parsing.
 - Chapter modules (`src/HashTable/`, `src/Cache/`, and so on) — implementations
   and their baselines. Each has a matching test directory.
+- Chapter 01 is split into `src/HashTable/` (`ChainingHashTable`,
+  `OpenAddressingHashTable`, `HashFunction`) and `src/BloomFilter/`.
 - `experiments/` — one runnable question per file, grouped by chapter.
 - `benchmarks/` — one suite per file, grouped by topic.
 

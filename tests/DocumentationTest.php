@@ -113,7 +113,7 @@ final class DocumentationTest extends TestCase
         foreach ([...$this->documents(), self::ROOT . '/README.md'] as $document) {
             $matches = [];
             preg_match_all(
-                '/make benchmark\s+ARGS="([a-z]+)/',
+                '/make benchmark\s+ARGS="([a-z][a-z0-9-]*)/',
                 (string) file_get_contents($document),
                 $matches,
             );
