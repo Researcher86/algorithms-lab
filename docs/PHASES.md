@@ -222,7 +222,7 @@ across moves: `hash:load-factor`, `bloom:fpr`, `cache:zipf`, `graph:dijkstra`,
 | # | Book chapter | Module | Core code | Experiments | Benchmark suite |
 |---|---|---|---|---|---|
 | 01 | Hash Table and Bloom Filter | HashTable, BloomFilter | ChainingHashTable, OpenAddressingHashTable, BloomFilter | hash:load-factor, hash:collisions, hash:memory, bloom:fpr | hash-table, bloom |
-| 02 | LRU / LFU Cache | Cache | LRUCache, LFUCache, NaiveLRU | cache:zipf, cache:scan, cache:loop, cache:lfu-shift | cache |
+| 02 | LRU / LFU Cache | Cache | LRUCache, LFUCache, HeapLFU, NaiveLRU, ArrayLRU | cache:zipf, cache:scan, cache:loop, cache:shift, cache:memory | cache |
 | 03 | Graph Algorithms | Graph | AdjacencyList, CsrGraph, Bfs, Dfs, Dijkstra, Kruskal, UnionFind | graph:representations, graph:dijkstra, graph:topo, graph:dsu | graph |
 | 04 | B-Tree and Search | Tree | BTree, BPlusTree, PageSimulator | tree:height, tree:range, tree:page-reads, tree:insert-patterns | tree |
 | 05 | Consistent Hashing | ConsistentHash | HashRing, RendezvousHash, ModuloHash | ring:remap, ring:balance, ring:replicas | ring |
@@ -404,7 +404,7 @@ experiments remain optional extensions.
 insert) and `bloom` (add, hit-check, miss-check). The development run uses
 10,000 keys; the 1e6-key sweep belongs to the book run, not the test suite.
 
-**Result:** 133 tests and 19,578 assertions pass; PHPStan level 8 reports no
+**Result:** 133 tests and 19,593 assertions pass; PHPStan level 8 reports no
 errors over 70 files; PHP-CS-Fixer reports no changes; both JSON experiment and
 benchmark outputs validate. The measured tables and conclusions are in
 [docs/BENCHMARKS.md](BENCHMARKS.md). The main findings are a 116-probe linear
@@ -416,21 +416,48 @@ and Bloom false-positive rates of 0.0118 / 0.0520 / 0.1059 for targets
 addressing; the price of collisions; false positives and memory. Deferred to
 the book phase.
 
-### Phase 3 — Chapter 02: LRU / LFU Cache
+### Phase 3 — Chapter 02: LRU / LFU Cache — code and measurements complete
 
-**Code:** LRUCache (map + doubly linked list), LFUCache (frequency buckets +
-minFreq, LRU tie-break), NaiveLRU (O(n)), ArrayLRU (PHP array order), HeapLFU
-(O(log n)); segmented LRU and TinyLFU as stretch.
+**Status (2026-10-22):** the implementation, tests, experiments and benchmark
+suite are complete. The book excerpt is deferred to Phase 11, where every
+chapter is written against a tagged release. Segmented LRU and TinyLFU were
+not built.
 
-**Experiments:** hit ratio on Zipf(α = 0.8/1.0/1.2) at capacities 100/1k/10k;
-a sequential scan flushing LRU; a loop of length capacity + 1; popularity
-shift; bytes per entry.
+**Code:** `src/Cache/Cache.php` for the shared contract; `CacheStats` for
+hits, misses and evictions; `LRUCache` with a map and sentinel doubly linked
+list; `LFUCache` with one frequency bucket per count, a `minFrequency` pointer
+and an LRU tie-break inside each bucket; `HeapLFU` with a min-heap, immutable
+priority records and lazy deletion; `NaiveLRU` as the O(n) list baseline;
+`ArrayLRU` as the PHP insertion-order baseline. `src/Foundation/ZipfDistribution.php`
+provides the deterministic Zipf sampler, and `Counters` gained `relinks` for
+pointer maintenance.
 
-**Benchmark suite:** cache — get/put/evict, LRU versus LFU versus naive versus
-array.
+**Expected complexity:** LRU and LFU get/put/remove are O(1) expected (the map
+lookup is average O(1)); HeapLFU is O(log n) per access/eviction plus lazy
+record cleanup; NaiveLRU is O(n) per lookup and O(n) eviction because it shifts
+the list; ArrayLRU is average O(1) in PHP but depends on the engine's array
+implementation.
 
-**Book:** O(1) on pointers; why LFU without recency decays; scan pollution;
-capacity 0/1 edge cases.
+**Experiments:** `cache:zipf` sweeps Zipf α = 0.8/1.0/1.2 at capacities
+100/1k/10k; `cache:scan` warms a popular set and flushes it with a sequential
+scan; `cache:loop` covers loop lengths capacity−1/capacity/capacity+1/2×capacity;
+`cache:shift` moves popularity from A to B and back; `cache:memory` reports
+bytes per entry for LRU, LFU, HeapLFU, ArrayLRU, NaiveLRU and a PHP array.
+
+**Benchmark suite:** `cache` — LRU/LFU/HeapLFU/ArrayLRU/NaiveLRU get hits and
+put-with-eviction, plus a PHP-array get baseline.
+
+**Result:** 206 tests and 26,197 assertions pass; PHPStan level 8 reports no
+errors over 96 files; PHP-CS-Fixer reports no changes. The measured tables and
+conclusions are in [docs/BENCHMARKS.md](BENCHMARKS.md). Main findings: LFU wins
+on stable Zipf popularity but fails after a popularity shift; LRU flushes on
+both a sequential scan and a `capacity + 1` loop; ArrayLRU matches LRU's hit
+ratio with 66.6 bytes/entry versus 192.5 for linked-list LRU; NaiveLRU is
+roughly two orders of magnitude slower on hit lookups at 10,000 entries.
+
+**Book:** O(1) pointer work versus hit ratio; LFU without decay; scan pollution
+and the loop pathology; capacity 0/1 edges; why PHP's array is a serious
+baseline. Deferred to the book phase.
 
 ### Phase 4 — Chapter 03: Graph Algorithms
 

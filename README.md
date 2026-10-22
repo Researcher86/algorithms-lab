@@ -8,7 +8,7 @@
 
 This repository is the code behind the seven chapters of
 [Algorithms Lab](https://github.com/Researcher86/engineering-lab-book/tree/master/algorithms-lab).
-The Docker environment, the measurement harness and the first chapter are
+The Docker environment, the measurement harness and the first two chapters are
 complete; the build journal, including the full plan for the remaining
 chapters, lives in [docs/PHASES.md](docs/PHASES.md).
 
@@ -32,12 +32,15 @@ make experiment ARGS="demo:smoke"            # run one
 make benchmark ARGS="demo"                   # text report with environment
 ```
 
-The first chapter is runnable as well:
+The first two chapters are runnable as well:
 
 ```bash
 make experiment ARGS="hash:load-factor --elements=20000 --seed=book"
 make experiment ARGS="bloom:fpr --elements=10000 --seed=book"
+make experiment ARGS="cache:zipf --seed=book"
+make experiment ARGS="cache:scan --seed=book"
 make benchmark ARGS="hash-table --repetitions=5"
+make benchmark ARGS="cache --repetitions=5"
 ```
 
 The other two gates CI runs:
@@ -66,18 +69,18 @@ The order is fixed by the book. Implementation follows the same order.
 | # | Chapter | Status |
 |---|---|---|
 | 01 | Hash Table and Bloom Filter | ✅ code and measurements |
-| 02 | LRU / LFU Cache | next |
-| 03 | Graph Algorithms | planned |
+| 02 | LRU / LFU Cache | ✅ code and measurements |
+| 03 | Graph Algorithms | next |
 | 04 | B-Tree and Search | planned |
 | 05 | Consistent Hashing | planned |
 | 06 | Top-K and Stream Processing | planned |
 | 07 | External Sorting | planned |
 
-Phase 0, Phase 1 and the code and measurements of Chapter 01 are complete:
+Phase 0, Phase 1 and the code and measurements of Chapters 01–02 are complete:
 the container, the foundation, the instrumentation, the experiment/benchmark
-harness and the hash-table/Bloom-filter chapter all run through `make check`
-locally and in CI. Chapter 02 is next. The Russian book chapters are written
-after the code chapters, against a tagged release.
+harness and the hash-table/Bloom-filter and cache chapters all run through
+`make check` locally and in CI. Chapter 03 is next. The Russian book chapters
+are written after the code chapters, against a tagged release.
 
 ## Documentation
 
@@ -107,12 +110,13 @@ algorithms-lab/
 
 The foundation primitives live under `src/Foundation/`: the seeded
 `DeterministicRandom`, a comparison-counting `Comparator`, a binary heap, a bit
-array, the hashers and union-find. `src/Instrumentation/` adds counters,
-`hrtime` stopwatches, a PHP-memory meter, the `Measure` facade and a log-log
-complexity fit. Chapter 01 adds `src/HashTable/` and `src/BloomFilter/`. The
-experiment and benchmark entry points are discoverable: drop a descriptor under
-`experiments/` or `benchmarks/` and it appears in the list without editing a
-central registry.
+array, the hashers, union-find and a deterministic `ZipfDistribution`.
+`src/Instrumentation/` adds counters, `hrtime` stopwatches, a PHP-memory meter,
+the `Measure` facade and a log-log complexity fit. Chapter 01 adds
+`src/HashTable/` and `src/BloomFilter/`; Chapter 02 adds `src/Cache/` with
+LRU, LFU, heap-LFU and two baselines. The experiment and benchmark entry
+points are discoverable: drop a descriptor under `experiments/` or
+`benchmarks/` and it appears in the list without editing a central registry.
 
 ## How this project relates
 

@@ -29,12 +29,17 @@ experiments/NN-topic/*.php          benchmarks/*.php
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| Foundation | Data structures and small primitives with no I/O: heap, bit array, hashers, comparator, seeded random, union-find | nothing |
+| Foundation | Data structures and small primitives with no I/O: heap, bit array, hashers, comparator, seeded random, Zipf sampler, union-find | nothing |
 | Instrumentation | Counters, stopwatch, memory meter and the Measure facade | Foundation |
 | Experiment | Descriptor, discovery, option validation, output, runner | Instrumentation |
 | Benchmark | Descriptor, repetitions, timings, environment, formatters | Instrumentation |
 | Cli | `--name=value` parsing shared by both entry points | nothing |
 | Chapter modules | Hash table, Bloom, cache, graph, tree, ring, stream, external sort | Foundation, Instrumentation |
+
+The cache module is a good example of the split: `Cache` and `CacheStats` are
+the contract, `LRUCache`/`LFUCache`/`HeapLFU` are the policies under study,
+and `NaiveLRU`/`ArrayLRU` are baselines. The experiment knows about hit rates
+and workloads; the cache knows only about keys, values and policy invariants.
 
 ## Experiment contract
 
@@ -87,6 +92,13 @@ not an algorithm.
   and their baselines. Each has a matching test directory.
 - Chapter 01 is split into `src/HashTable/` (`ChainingHashTable`,
   `OpenAddressingHashTable`, `HashFunction`) and `src/BloomFilter/`.
+- Chapter 02 lives in `src/Cache/`: `Cache`/`CacheStats` for the contract,
+  `LRUCache` and `LFUCache` for the policies, `HeapLFU` for the O(log n)
+  comparison, and `NaiveLRU`/`ArrayLRU` for the baselines. The shared
+  `ZipfDistribution` is in `src/Foundation/` because later chapters also need
+  skewed request sequences.
+- Cache experiments are `cache:zipf`, `cache:scan`, `cache:loop`,
+  `cache:shift` and `cache:memory`; the benchmark suite is `cache`.
 - `experiments/` — one runnable question per file, grouped by chapter.
 - `benchmarks/` — one suite per file, grouped by topic.
 

@@ -145,3 +145,68 @@ was made. New decisions are appended with a date.
   `/tmp/phpstan` before analysis.
 - At this repository's size a fresh analysis takes seconds, and a local green
   run that silently skipped new files is worse than the cost.
+
+## 2026-10-22 — Cache reads update policy; probes do not
+
+- `Cache::get()` is the only operation that updates recency/frequency and the
+  hit/miss counters. `Cache::has()` is a non-mutating probe: otherwise a
+  monitoring call would change which entry is evicted next.
+- `get()` returns `null` both for a miss and for a stored `null`; `has()` tells
+  the cases apart. A separate `peek()` or result object would be more explicit,
+  but this contract is small and matches the rest of the lab.
+- Capacity 0 is legal and stores nothing. Capacity 1 is the smallest useful
+  cache and is covered by the shared contract tests. Negative capacity is
+  refused at construction.
+- `CacheStats` counts only `get()` requests and evictions. Puts and probes do
+  not inflate the hit rate; the experiment, not the cache, decides when to
+  reset the counters.
+
+## 2026-10-22 — LRU uses sentinels; LFU uses one bucket per frequency
+
+- LRU is a hash map from key to node plus a doubly linked list with head and
+  tail sentinels. A hit unlinks the node and links it after the head; the node
+  before the tail is the victim. Sentinels remove empty-list branches from the
+  hot path.
+- LFU keeps one doubly linked list per frequency, `minFrequency`, and an LRU
+  order inside each bucket. A hit promotes the node to `frequency + 1` and
+  moves it to the front; eviction takes the tail of the minimum bucket. When
+  that bucket empties, the minimum is recomputed or advanced.
+- This LFU has no frequency decay. The scan experiment shows the win; the
+  popularity-shift experiment shows the failure. Segmented LRU and TinyLFU
+  would address the trade-off but are deferred rather than hidden in the
+  baseline.
+- HeapLFU is the comparison point: immutable priority records go into a
+  min-heap and stale records are discarded lazily. Its memory grows with the
+  number of accesses, which is visible in the measured table.
+
+## 2026-10-22 — Naive and array LRU baselines are first-class
+
+- `NaiveLRU` is an honest O(n) list of pairs: every lookup scans, and a hit uses
+  `array_splice()` to move the entry. It is the baseline that makes the
+  map-plus-list improvement measurable.
+- `ArrayLRU` uses PHP's insertion-ordered array: unset and reinsert on a hit,
+  `array_key_first()` for eviction. It is a serious baseline, not a straw man;
+  it matches LRU's hit ratio and uses less memory in the measured run.
+- The cache benchmark includes a plain PHP array as the language-level floor.
+  The point of the chapter is not that a custom cache beats the engine at raw
+  lookup; it is what the custom cache buys when eviction and policy are needed.
+
+## 2026-10-22 — Zipf requests are generated, not hand-written
+
+- `ZipfDistribution` builds a cumulative distribution once and samples ranks by
+  binary search from `DeterministicRandom`. The cache experiment maps ranks to
+  keys and replays the same sequence for every policy and capacity.
+- This avoids a hand-written request list that would encode the expected
+  popularity ranking and make the result look better than the workload.
+- A miss in the experiment is followed by a put, modelling a backing store.
+  Hit rate therefore measures the cache policy rather than a read-only replay
+  of an already-populated table.
+
+## 2026-10-22 — `relinks` is the cache pointer counter
+
+- `Counters` now has `relinks`: the number of pointer writes performed while
+  maintaining a linked list or frequency bucket. A bounded count per request is
+  the counter evidence for O(1) policy maintenance; it is not a timing metric.
+- The counter is generic because later chapters (LRU in a database buffer pool,
+  graph adjacency structures) can reuse it. Chapter-specific meanings are
+  documented where the counter is consumed.

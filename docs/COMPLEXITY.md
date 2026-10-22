@@ -27,6 +27,7 @@ operations being counted. The three are reported side by side.
 | collisions | Keys that landed in the same bucket or slot |
 | nodeReads | Tree or page nodes touched |
 | swaps | Element moves in an in-place algorithm |
+| relinks | Pointer writes in a linked structure or frequency bucket |
 | rehashes | Full table rebuilds during resize |
 
 Counters live in src/Instrumentation/Counters.php. A chapter resets them
@@ -135,9 +136,88 @@ addressing and 65.5 for a PHP array, using `memory_get_usage(false)`. These are
 PHP-allocator numbers on one machine. They explain the representation cost;
 they are not portable constants.
 
+## Chapter 02 — LRU / LFU cache
+
+### Expected complexity
+
+| Policy | get | put | remove | Extra memory |
+|---|---|---|---|---|
+| LRU (map + doubly linked list) | expected O(1) | expected O(1) | expected O(1) | one node per entry |
+| LFU (frequency buckets) | expected O(1) | expected O(1) | O(f) when the minimum bucket must be recomputed | one node and one bucket per distinct frequency |
+| HeapLFU (lazy heap) | O(log n) | O(log n) | O(1) to mark, stale records cleaned later | one heap record per access |
+| ArrayLRU | expected O(1) | expected O(1) | expected O(1) | PHP array entry |
+| NaiveLRU | O(n) | O(n) | O(n) | one nested array per entry |
+
+The map lookup is average O(1), not worst-case O(1): PHP's hash table can
+degrade. The LFU `remove()` path scans the remaining frequency buckets when
+the minimum bucket becomes empty; eviction does the same, so the stated O(1)
+applies to the normal get/put path with `minFrequency` maintained, not to an
+adversarial sequence of removals.
+
+### Pointer work
+
+`cache:zipf` records `relinks` per request as well as hit rate. At α = 1.0 the
+default run (100,000-key space, 20,000 requests) measured:
+
+| capacity | LRU relinks/request | LFU relinks/request |
+|---:|---:|---:|
+| 100 | 1.9753 | 1.9950 |
+| 1,000 | 1.9303 | 1.9500 |
+| 10,000 | 1.6074 | 1.6271 |
+
+The count does not grow with capacity. A hit costs a bounded number of pointer
+writes (approximately two for moving a node); the variation comes from how many
+requests are cold misses and from how often eviction is needed. ArrayLRU reports
+zero `relinks` because PHP's array does the ordering internally. This is the
+counter evidence for the O(1) pointer claim; the linked-list code cannot hide an
+O(n) walk behind the map.
+
+The naive baseline is the contrast: its `get()` increments `comparisons` once
+per scanned list element, so a hit near the tail costs O(capacity). In the
+benchmark at capacity 10,000 it managed about 15,932 get hits/sec versus
+2,728,271 for LRU and 5,525,740 for ArrayLRU. Those are single-size timings, not
+a fit, but they show the direction the counter predicts.
+
+### Hit ratio is not complexity
+
+The complexity class says what one operation costs; it does not say whether the
+operation hits. Chapter 02 measures three distinct failure modes:
+
+- **Stable Zipf popularity:** LFU beat LRU at small capacities (13.41% versus
+  6.63% at α = 0.8, capacity 100) and converged at large capacities.
+- **Sequential scan:** LRU's reuse hit rate after a scan was 0.00%, while LFU
+  retained 99.90% of the popular set because the scan keys entered at
+  frequency one.
+- **Popularity shift:** the result reverses. When set B replaced set A and then
+  A returned, LRU followed B (90.00% while B was hot) and reloaded A (90.00% on
+  return); LFU stayed with A (0.00% while B was hot, 99.99% when A returned).
+- **Cyclic scan:** both policies scored 100% for loops that fit in capacity and
+  0% for a loop of capacity + 1, despite O(1) operations.
+
+The exact numbers and commands are in [`docs/BENCHMARKS.md`](BENCHMARKS.md).
+The loop and shift experiments are the reason the chapter does not name a
+universal winner: LFU without decay is not a drop-in improvement over LRU.
+
+### Memory
+
+At 10,000 entries the measured PHP-allocator cost was 192.5 bytes/entry for
+LRU, 196.2 for LFU, 325.4 for HeapLFU, 66.6 for ArrayLRU, 403.9 for NaiveLRU
+and 65.5 for a plain PHP array. These are engine allocations, not RSS; the
+point is the representation overhead, not a portable constant.
+
+### What is not claimed
+
+There is no multi-capacity time fit for Chapter 02. The benchmark suite fixes
+capacity and key count, and one point cannot support a slope. The O(1) pointer
+claim is backed by the bounded `relinks` counter and the implementation
+invariant; the O(n) naive claim is visible in the time comparison and in its
+per-scan comparison counter. A future multi-capacity sweep could add a fit, but
+it is not presented as if it already exists.
+
 ## Status
 
-Phase 1 defines the instrumentation and the fit helper. Chapter 01 is the first
-to publish measured counters and memory; its time suite has one size, so it
-does not claim a time fit. Later chapters add multi-size fits where the
-question requires one.
+Phase 1 defines the instrumentation and the fit helper. Chapter 01 publishes
+measured counters and memory; its time suite has one size, so it does not claim
+a time fit. Chapter 02 adds a counter-backed O(1) pointer claim and measured
+hit-ratio behavior, but also has one benchmark size. Later chapters add
+multi-size fits where the question requires one.
