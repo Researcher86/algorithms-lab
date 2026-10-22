@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AlgorithmsLab\Tests\Foundation;
 
 use AlgorithmsLab\Foundation\UnionFind;
+use AlgorithmsLab\Instrumentation\Counters;
 use OutOfRangeException;
 use PHPUnit\Framework\TestCase;
 
@@ -60,5 +61,52 @@ final class UnionFindTest extends TestCase
         $this->expectException(OutOfRangeException::class);
 
         new UnionFind()->find(1);
+    }
+
+    public function testVariantsKeepTheSameConnectivity(): void
+    {
+        $variants = [
+            new UnionFind(),
+            new UnionFind(pathCompression: false),
+            new UnionFind(unionByRank: false),
+            new UnionFind(pathCompression: false, unionByRank: false),
+        ];
+
+        foreach ($variants as $sets) {
+            for ($i = 0; $i < 10; ++$i) {
+                $sets->makeSet($i);
+            }
+
+            $sets->union(0, 1);
+            $sets->union(1, 2);
+            $sets->union(3, 4);
+            $sets->union(4, 5);
+            $sets->union(2, 5);
+        }
+
+        foreach ($variants as $sets) {
+            self::assertSame(5, $sets->setCount());
+            self::assertTrue($sets->connected(0, 3));
+            self::assertFalse($sets->connected(0, 6));
+            self::assertSame(6, $sets->componentSize(5));
+        }
+    }
+
+    public function testCountersRecordParentReads(): void
+    {
+        $counters = new Counters();
+        $sets = new UnionFind(counters: $counters);
+
+        for ($i = 0; $i < 10; ++$i) {
+            $sets->makeSet($i);
+        }
+
+        for ($i = 1; $i < 10; ++$i) {
+            $sets->union(0, $i);
+        }
+
+        $sets->find(9);
+
+        self::assertGreaterThan(0, $counters->nodeReads);
     }
 }
