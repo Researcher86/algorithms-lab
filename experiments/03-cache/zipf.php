@@ -72,6 +72,10 @@ return new Experiment(
                         sprintf('zipf_%s_cap%d_%s_hit_rate', $alphaLabel, $capacity, $name),
                         $rate,
                     );
+                    $output->measure(
+                        sprintf('zipf_%s_cap%d_%s_relinks_per_request', $alphaLabel, $capacity, $name),
+                        $cache->counters()->relinks / $iterations,
+                    );
                 }
 
                 $output->line(sprintf(
