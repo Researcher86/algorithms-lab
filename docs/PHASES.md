@@ -224,7 +224,7 @@ across moves: `hash:load-factor`, `bloom:fpr`, `cache:zipf`, `graph:dijkstra`,
 | 01 | Hash Table and Bloom Filter | HashTable, BloomFilter | ChainingHashTable, OpenAddressingHashTable, BloomFilter | hash:load-factor, hash:collisions, hash:memory, bloom:fpr | hash-table, bloom |
 | 02 | LRU / LFU Cache | Cache | LRUCache, LFUCache, HeapLFU, NaiveLRU, ArrayLRU | cache:zipf, cache:scan, cache:loop, cache:shift, cache:memory | cache |
 | 03 | Graph Algorithms | Graph | AdjacencyList, AdjacencyMatrix, EdgeList, CsrGraph, Bfs, Dfs, TopologicalSort, Dijkstra, DijkstraDecreaseKey, BellmanFord, Kruskal, Prim, UnionFind | graph:representations, graph:traversal, graph:dijkstra, graph:topological-sort, graph:dsu | graph |
-| 04 | B-Tree and Search | Tree | BTree, BPlusTree, PageSimulator | tree:height, tree:range, tree:page-reads, tree:insert-patterns | tree |
+| 04 | B-Tree and Search | Tree | BTree, BPlusTree, PageSimulator, SortedArrayIndex, PhpArrayIndex, KeyGenerator | tree:height, tree:insert-patterns, tree:range, tree:page-reads, tree:memory | tree |
 | 05 | Consistent Hashing | ConsistentHash | HashRing, RendezvousHash, ModuloHash | ring:remap, ring:balance, ring:replicas | ring |
 | 06 | Top-K and Stream Processing | Stream | TopKHeap, QuickSelect, CountMinSketch, SpaceSaving | stream:top-k, stream:sketch, stream:unique, stream:drift | stream |
 | 07 | External Sorting | ExternalSort | ExternalSorter, ChunkReader, KWayMerge | sort:memory-limit, sort:fan-in, sort:patterns, sort:io | external-sort |
@@ -506,21 +506,51 @@ cost; negative edges; disconnected graphs and self-loops; the difference
 between an amortized union-find bound and one expensive find. Deferred to the
 book phase.
 
-### Phase 5 — Chapter 04: B-Tree and Search
+### Phase 5 — Chapter 04: B-Tree and Search — code and measurements complete
 
-**Code:** BTree of order t with search/insert/delete, borrow/merge/split;
-BPlusTree with range scan, linked leaves and bulk load; PageSimulator with
-4/8 KiB pages and node-read counters; baselines: sorted array + binary search
-and a PHP array.
+**Status (2026-10-22):** the implementation, tests, experiments and benchmark
+suite are complete. The book excerpt is deferred to Phase 11, where every
+chapter is written against a tagged release. B+ deletion was not built.
 
-**Experiments:** height and node reads for N = 1e3…1e6 and fanout; random
-versus sorted inserts and bulk load; range sizes 10/100/1000; simulated page
-reads versus binary search; bytes per key.
+**Code:** `src/Tree/BTree.php` with `BTreeNode`: minimum-degree B-tree search,
+top-down insertion with splits, pre-emptive deletion with borrow/merge, root
+collapse, sorted traversal, height and invariant validation.
+`BPlusTree.php` with `BPlusNode`: point search, recursive insertion, linked
+leaves, range scan and sorted bulk load. `PageSimulator` is the 4/8 KiB page
+model; `SortedArrayIndex` and `PhpArrayIndex` are the flat baselines;
+`KeyGenerator` supplies reproducible shuffled, ascending and descending key
+sets.
 
-**Benchmark suite:** tree — search/insert/delete/range.
+**Expected complexity:** B-tree and B+ search/insert/delete O(log_t n) node
+reads, with O(t) key work per node; B+ range O(log_t n + k); bulk load O(n);
+sorted-array search O(log n) but insert/delete O(n); PHP-array operations
+expected O(1). Memory is O(n) for all structures.
+
+**Experiments:** `tree:height` compares t = 4/8/16/32 at 50,000 keys and has a
+separate one-million-key run; `tree:insert-patterns` compares random, ascending
+and descending insertion plus B+ bulk load; `tree:range` measures B+ ranges of
+10/100/1,000 keys; `tree:page-reads` compares the page model with binary-search
+comparisons at 4/8 KiB; `tree:memory` reports bytes/key for the B-tree, bulk
+B+ tree, sorted array and PHP array.
+
+**Benchmark suite:** `tree` — B-tree/B+ search, B-tree/B+ batch insertion, B+
+bulk load, B-tree build-plus-delete and B+ range scan. The flat sorted array
+and PHP array are point-search baselines.
+
+**Result:** 279 tests and 32,999 assertions pass; PHPStan level 8 reports no
+errors over 149 files; PHP-CS-Fixer reports no changes. The measured tables and
+conclusions are in [docs/BENCHMARKS.md](BENCHMARKS.md). Main findings: at one
+million keys the B-tree height fell from 9 at t = 4 to 4 at t = 32; at 50,000
+keys bytes/key fell from 87.4 to 33.5; a bulk-loaded B+ tree used 37.4
+bytes/key versus 50.1 for the inserted B-tree and about 21 for the flat
+baselines; ranges of 10/100/1,000 keys cost 4.29/7.22/36.28 node reads; and the
+page model charged 3.95 pages per tree search versus 16.68 binary-search
+comparisons. No multi-size time fit is claimed.
 
 **Book:** why a B-tree is about blocks, not CPU; fanout and height; why binary
-search loses on disk; deletion rebalancing.
+search loses when each probe is an I/O; sorted insertion is not automatically a
+better shape; deletion rebalancing; and why a B+ linked-leaf range scan is a
+different operation from point lookup. Deferred to the book phase.
 
 ### Phase 6 — Chapter 05: Consistent Hashing
 

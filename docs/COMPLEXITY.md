@@ -297,6 +297,99 @@ from one size would not. A*, Tarjan SCC, PageRank and a Barabási–Albert
 generator are stretch items and were not built, so the chapter makes no claims
 about them.
 
+## Chapter 04 — B-tree and B+ tree
+
+### Expected complexity
+
+| Structure or operation | Time | Extra memory |
+|---|---|---|
+| B-tree search | O(log_t n) node reads, O(t) key work per node | O(n) |
+| B-tree insert / delete | O(log_t n) node reads; splits, borrows and merges are O(t) per node | O(n) |
+| B+ tree search / insert | O(log_t n) node reads | O(n) |
+| B+ range | O(log_t n + k) including k returned keys | O(k) for the result |
+| B+ bulk load from sorted keys | O(n) | O(n) |
+| SortedArrayIndex search | O(log n) comparisons | O(n) |
+| SortedArrayIndex insert / delete | O(n) because elements move | O(n) |
+| PhpArrayIndex search / insert / delete | expected O(1) | O(n) |
+
+`t` is the minimum degree: a node has at most `2t - 1` keys and, except for
+the root, at least `t - 1`. The B-tree height is therefore O(log_t n), and the
+B+ tree uses the same fanout. A B-tree search pays one node read per level;
+within a node, a binary search over at most `2t - 1` keys is O(log t), which is
+a constant for a fixed t. Deletion is the expensive part to get right, not the
+asymptotic part: a child at the minimum is repaired by borrowing from a
+sibling or merging before the descent.
+
+The flat sorted array has the same logarithmic search bound but a different
+constant: binary search performs O(log n) comparisons and each comparison can
+touch a different region. Its insertion and deletion are O(n) because the
+array shifts. The PHP array baseline is an unordered hash table: point lookup
+is expected O(1), but it cannot answer a range without scanning and sorting.
+
+### Counter evidence
+
+`BTree` and `BPlusTree` accept an optional `Counters` and increment
+`nodeReads` on every node visited. `tree:height` uses that counter after
+resetting it, so the build work does not leak into the search number. At
+50,000 keys:
+
+| t | height | node reads/search |
+|---:|---:|---:|
+| 4 | 7 | 6.81 |
+| 8 | 5 | 4.92 |
+| 16 | 4 | 3.96 |
+| 32 | 3 | 2.97 |
+
+At one million keys the heights were 9, 6, 5 and 4 for the same t values. The
+heights grow much more slowly than n; the node-read average stays close to
+the height because an unsuccessful search reads one node per level and a
+successful search stops at the leaf. No time fit is claimed from these two
+sizes. The measured height and counter are the evidence for the O(log_t n)
+claim.
+
+`tree:range` counts internal and leaf node reads. At 100,000 keys and t = 16,
+ranges of 10, 100 and 1,000 keys cost 4.29, 7.22 and 36.28 node reads per
+query. The first value is essentially the root-to-leaf path; the larger values
+show the linked-leaf walk. A range does not repeat the root path for every
+leaf.
+
+`tree:page-reads` uses `PageSimulator` to turn each visited node into one or
+more page accesses from an estimated node size. At 100,000 keys and t = 16,
+the tree height is 4 and the model charged 3.95 pages per search, while binary
+search made 16.68 comparisons. These are not the same unit: comparisons are
+CPU work, pages are the model's I/O charge. The experiment reports them
+separately instead of pretending a comparison is a page.
+
+### Measured memory and time
+
+At 50,000 keys and t = 8, the PHP allocator reported 50.1 bytes/key for the
+inserted B-tree, 37.4 for the bulk-loaded B+ tree, 21.2 for a sorted PHP list
+and 21.1 for a plain PHP array. The tree pays for explicit node objects and
+child arrays; the flat array pays for neither. The B+ tree is smaller than the
+B-tree in this run because bulk load packs nodes to capacity, not because a
+B+ tree is intrinsically smaller.
+
+The `tree` benchmark fixes one 10,000-key data set and measures point lookups,
+batch insertion, bulk load, deletion and range scans. The full table is in
+[`docs/BENCHMARKS.md`](BENCHMARKS.md). The PHP array is the fastest point
+lookup because it has no ordering to maintain; the B+ range scan is the
+operation the flat array cannot provide directly. Deletion is benchmarked as
+a batch that builds a 1,000-key tree and deletes 200 keys, so its number
+includes construction; it is a demonstration of the rebalancing path, not a
+pure delete microbenchmark.
+
+### What is not claimed
+
+The page model is not an operating-system page cache and does not measure
+readahead, cache hits or storage latency. The tree is an in-memory PHP data
+structure; its node size is estimated, not serialized to disk. B+ deletion was
+not implemented, so the chapter does not claim a complete B+ write path.
+Bulk-loaded trees may have underfull final nodes; the strict occupancy check is
+available for inserted trees, while `validate(false)` accepts the bulk-load
+shape. There is no multi-size time fit: the height/counter evidence supports
+the asymptotic claim, and the benchmark numbers describe one fixed machine and
+one fixed data set.
+
 ## Status
 
 Phase 1 defines the instrumentation and the fit helper. Chapter 01 publishes
@@ -304,5 +397,7 @@ measured counters and memory; its time suite has one size, so it does not claim
 a time fit. Chapter 02 adds a counter-backed O(1) pointer claim and measured
 hit-ratio behavior, but also has one benchmark size. Chapter 03 adds graph
 representation memory, exact traversal counters, heap-pop evidence for
-Dijkstra and union-find read counts, still with one size per question. Later
+Dijkstra and union-find read counts, still with one size per question. Chapter
+04 adds height and node-read evidence at two sizes, a linked-leaf range
+counter, and a page model that is kept separate from wall-clock time. Later
 chapters add multi-size fits where the question requires one.

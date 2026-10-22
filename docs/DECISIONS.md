@@ -318,3 +318,87 @@ was made. New decisions are appended with a date.
   as stretch work rather than implied by the chapter. No multi-size time fit is
   claimed; the graph benchmark is a fixed-size suite, and the counters carry
   the asymptotic argument.
+
+## 2026-10-22 — B-tree order is minimum degree, not fanout
+
+- `BTree` calls its parameter `minimumDegree` and follows CLRS: a node has at
+  most `2t - 1` keys and, except for the root, at least `t - 1`. Calling it
+  "order" without saying maximum children or maximum keys invites an off-by-one
+  in the split logic and in the tests.
+- Insertion is top-down: a full child is split before the descent, so the
+  recursive insert never climbs back up. Deletion is pre-emptive: before
+  descending into a child with `t - 1` keys, it borrows from a sibling or
+  merges with one. The root is collapsed after deletion if it becomes empty.
+- Keys are unique integers. Inserting an existing key returns false and does
+  not change the tree. Satellite values were deliberately left out: they would
+  make node sizes larger without changing the page-read argument, and the
+  chapter is about the index structure.
+- `validate()` checks key counts, child counts, sorted keys and equal leaf
+  depth. The randomized differential test compares the tree against a sorted
+  associative set after hundreds of mixed insert/delete operations, which is
+  what catches a broken borrow or merge.
+
+## 2026-10-22 — B+ separators point right on equality
+
+- Internal B+ keys are the first key of the child to their right. A lookup
+  therefore uses `upperBound` and takes the right child on equality; the key
+  lives in a leaf, not in the internal node.
+- Leaves contain every key exactly once and are singly linked in ascending
+  order. A range finds the first leaf once and follows `next` until the upper
+  bound; it does not return to the root for each leaf.
+- Insertion is recursive and returns a promoted separator plus a new right
+  sibling when a node overflows. A leaf split keeps the new leaf linked after
+  the old one, and an internal split promotes the middle key and divides the
+  child pointers. The root split creates a new internal root.
+- Bulk load packs leaves to capacity, links them, and builds internal levels
+  bottom-up from the first key of each child. The final node at a level may be
+  underfull; `validate(false)` accepts that shape while inserted trees use the
+  strict occupancy check. A B+ deletion path was not implemented in this
+  phase, so the chapter does not imply one.
+
+## 2026-10-22 — PageSimulator is a model, not a page cache
+
+- `PageSimulator` estimates a node's bytes from key width, pointer width and a
+  header, charges at least one page per visited node, and exposes the maximum
+  keys per page and the resulting bytes/key. `BTree::search()` accepts it as an
+  optional observer; the tree itself does not need to know about pages.
+- It does not model the operating-system page cache, readahead, dirty pages or
+  storage latency. The experiment says so in its own output. The useful claim
+  is structural: a B-tree search visits one node per level, while binary search
+  makes a logarithmic number of comparisons that may each touch a different
+  region.
+- The 4 KiB and 8 KiB runs produced the same page count at 100,000 keys because
+  a node fit in one page in both models. That is a result about this t and key
+  width, not a claim that page size never matters.
+
+## 2026-10-22 — Flat baselines need different build paths
+
+- `SortedArrayIndex::insert()` uses binary search plus `array_splice`, which is
+  O(n) and is the honest cost of maintaining a sorted list. Building the
+  50,000-key memory baseline through repeated insertion took seconds, so the
+  memory and page-read experiments use `fromSortedArray()`, an O(n) copy of an
+  already sorted list. The insertion path remains implemented and tested; the
+  experiments simply do not pretend that a flat list is a fair insertion
+  baseline.
+- `PhpArrayIndex` is an unordered hash table. It is the right point-lookup
+  baseline and the wrong ordered-range baseline; the chapter keeps both.
+- `PageSimulator` reads node sizes, not serialized nodes. `tree:memory` uses
+  the PHP allocator delta and labels it as such, not as RSS or disk bytes.
+
+## 2026-10-22 — Tree experiments ask one question each
+
+- `tree:height` changes t while holding a shuffled key set fixed; it reports
+  height, bytes/key and search node reads. The one-million-key run is a
+  separate command because it is a memory and build-time demonstration, not the
+  default smoke test.
+- `tree:insert-patterns` compares random, ascending and descending insertion,
+  plus B+ bulk load. Height and node reads are the comparison; the build times
+  are noisy but show the bulk-load gap.
+- `tree:range` bulk-loads a B+ tree and measures three result sizes. It reports
+  node reads, not just time, because a linked-leaf walk is the point.
+- `tree:page-reads` compares B-tree page-model charges with binary-search
+  comparisons at 4 KiB and 8 KiB.
+- `tree:memory` compares B-tree, bulk-loaded B+ tree, sorted array and PHP
+  array at the same key count.
+- No multi-size time fit is claimed. The two height points and the counters
+  support the asymptotic argument; the benchmark is a fixed-size suite.

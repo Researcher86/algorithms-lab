@@ -108,6 +108,15 @@ not an algorithm.
 - Graph experiments are `graph:representations`, `graph:traversal`,
   `graph:dijkstra`, `graph:topological-sort` and `graph:dsu`; the benchmark
   suite is `graph`.
+- Chapter 04 lives in `src/Tree/`. `BTreeNode` and `BTree` implement the
+  textbook minimum-degree B-tree with pre-emptive insertion splits and
+  borrow/merge deletion. `BPlusNode` and `BPlusTree` implement the linked-leaf
+  B+ tree with point search, range scans and a sorted bulk loader.
+  `SortedArrayIndex` and `PhpArrayIndex` are the flat baselines;
+  `PageSimulator` is the page-cost model; `KeyGenerator` produces reproducible
+  shuffled, ascending and descending key sets.
+- Tree experiments are `tree:height`, `tree:insert-patterns`, `tree:range`,
+  `tree:page-reads` and `tree:memory`; the benchmark suite is `tree`.
 - `src/Foundation/IndexedMinHeap.php` is the decrease-key heap used by
   `DijkstraDecreaseKey`; `UnionFind` accepts path-compression and union-by-rank
   flags plus an optional `Counters`, which is what makes the DSU experiment a

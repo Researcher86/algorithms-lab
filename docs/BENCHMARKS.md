@@ -60,17 +60,25 @@ make experiment ARGS="graph:dijkstra --seed=book"
 make experiment ARGS="graph:topological-sort --seed=book"
 make experiment ARGS="graph:dsu"
 
+make experiment ARGS="tree:height --seed=book"
+make experiment ARGS="tree:insert-patterns --seed=book"
+make experiment ARGS="tree:range --seed=book"
+make experiment ARGS="tree:page-reads --seed=book"
+make experiment ARGS="tree:memory --seed=book"
+
 make benchmark ARGS="demo"
 make benchmark ARGS="hash-table --repetitions=5"
 make benchmark ARGS="bloom --repetitions=5"
 make benchmark ARGS="cache --repetitions=5"
 make benchmark ARGS="graph --repetitions=5"
+make benchmark ARGS="tree --repetitions=5"
 make benchmark ARGS="hash-table --format=json --output=var/results/hash-table.json"
 ```
 
 Every suite records the environment block. Text is for reading, JSON for
 keeping, CSV for comparing runs in a spreadsheet. The `demo` suite is the
-smoke test; `hash-table`, `bloom`, `cache` and `graph` are the chapter suites.
+smoke test; `hash-table`, `bloom`, `cache`, `graph` and `tree` are the chapter
+suites.
 
 ## Container numbers
 
@@ -510,3 +518,164 @@ Kruskal is always the better algorithm.
   problem; the naive variant is not merely a little slower on a bad input.
 - A*, Tarjan SCC, PageRank and a Barabási–Albert generator were not built in
   this phase. They remain stretch material, not implied results.
+
+### Chapter 04 — B-Tree and Search
+
+These are development numbers, not the book's reference measurements. They
+were taken in Docker on macOS at commit `6437acb`; the harness printed:
+
+```text
+PHP 8.5.11 on Linux 7.0.14-linuxkit, aarch64 x 12, memory_limit 512M, cgroup unlimited
+OPcache off, JIT off, Xdebug off, allocator Zend MM
+```
+
+The tree stores integer keys only. That keeps the node-size comparison honest:
+there are no satellite values or serialization layers hiding inside the
+measurement. `minimumDegree` is the textbook B-tree parameter t: at most
+2t - 1 keys per node, at least t - 1 except at the root.
+
+#### Height and fanout
+
+`make experiment ARGS="tree:height --seed=book"` inserts the same shuffled
+keys into four B-trees, then searches 1,000 random keys. At 50,000 keys:
+
+| t | height | bytes/key | build | node reads/search |
+|---:|---:|---:|---:|---:|
+| 4 | 7 | 87.4 | 127.380 ms | 6.81 |
+| 8 | 5 | 47.6 | 106.832 ms | 4.92 |
+| 16 | 4 | 37.4 | 97.548 ms | 3.96 |
+| 32 | 3 | 33.5 | 93.048 ms | 2.97 |
+
+The same experiment at one million keys, with a separate seed, shows the
+logarithmic height claim away from a single small sample:
+
+| t | height | bytes/key | build | node reads/search |
+|---:|---:|---:|---:|---:|
+| 4 | 9 | 86.0 | 4,353.735 ms | 8.76 |
+| 8 | 6 | 47.7 | 3,368.201 ms | 5.91 |
+| 16 | 5 | 37.6 | 2,999.441 ms | 4.96 |
+| 32 | 4 | 33.1 | 2,842.660 ms | 3.98 |
+
+A larger t means fewer, wider nodes and fewer pointer hops. The price is more
+key work inside each node and a larger node footprint; bytes/key falls from
+87.4 to 33.5 because a wider node amortizes the PHP object and array headers.
+Height is not a timing result: the build times are dominated by insertion and
+the virtualized host. The node-read counts are the useful comparison.
+
+#### Insertion patterns
+
+`make experiment ARGS="tree:insert-patterns --seed=book"` uses 10,000 keys and
+t = 8:
+
+| structure | pattern | height | build | node reads/insert | bytes/key |
+|---|---|---:|---:|---:|---:|
+| BTree | random | 4 | 17.127 ms | 3.81 | 53.5 |
+| BTree | ascending | 5 | 15.922 ms | 4.06 | 53.6 |
+| BTree | descending | 5 | 18.374 ms | 4.06 | 48.5 |
+| BPlusTree | random | 4 | 26.204 ms | 7.56 | 58.5 |
+| BPlusTree | ascending | 4 | 25.670 ms | 7.73 | 56.9 |
+| BPlusTree | descending | 5 | 29.780 ms | 8.00 | 50.8 |
+| BPlusTree | bulk load | 4 | 0.348 ms | 0.00 | 36.5 |
+
+Sorted insertion is not automatically the best shape. It creates a
+right-edge split pattern and can add a level compared with random insertion at
+the same n. B+ insertion does a search before the insert, so its node-read
+counter is roughly twice the B-tree's; that is the cost of keeping linked
+leaves and separators consistent. Bulk load does no search-before-insert and
+packs leaves directly, which is why its build is two orders of magnitude
+faster at this size. The `0.00` read counter for bulk load means no search
+path was used; the bulk builder still touches every key.
+
+#### Range scans
+
+`make experiment ARGS="tree:range --seed=book"` bulk-loads 100,000 keys into
+a B+ tree with t = 16 and runs 200 ranges for each size:
+
+| result size | time/query | node reads/query | total results |
+|---:|---:|---:|---:|
+| 10 | 2.255 µs | 4.29 | 2,000 |
+| 100 | 5.926 µs | 7.22 | 20,000 |
+| 1,000 | 43.112 µs | 36.28 | 200,000 |
+
+The internal path is paid once per query; the extra cost comes from walking
+linked leaves. A range does not return to the root for every leaf. The
+100,000-key bulk load took 3.084 ms and 2.84 MB of PHP memory in this run.
+
+#### Page reads versus binary search
+
+`make experiment ARGS="tree:page-reads --seed=book"` uses 100,000 keys, t = 16
+and 1,000 searches. The page model assumes one page access per visited B-tree
+node; it estimates node size from 8-byte keys, 8-byte pointers and a 24-byte
+header.
+
+| page size | height | B-tree pages/query | binary comparisons/query | model bytes/key |
+|---:|---:|---:|---:|---:|
+| 4,096 B | 4 | 3.95 | 16.68 | 16.03 |
+| 8,192 B | 4 | 3.95 | 16.68 | 16.02 |
+
+The B-tree visits about four nodes while binary search makes about seventeen
+comparisons. This is a model, not an operating-system page cache: it does not
+know about the page cache, readahead, or the cost of a random access. The
+honest conclusion is narrower than "B-trees are faster": a tree can turn a
+logarithmic number of independent probes into a small number of node-level
+accesses, and that matters when a node is the unit of I/O.
+
+#### Bytes per key
+
+`make experiment ARGS="tree:memory --seed=book"` uses 50,000 keys and t = 8:
+
+| structure | height | PHP memory | bytes/key | build |
+|---|---:|---:|---:|---:|
+| BTree | 5 | 2,446.3 KiB | 50.1 | 68.950 ms |
+| BPlusTree (bulk) | 4 | 1,827.9 KiB | 37.4 | 2.541 ms |
+| SortedArrayIndex | n/a | 1,037.0 KiB | 21.2 | 1.841 ms |
+| PhpArrayIndex | n/a | 1,032.4 KiB | 21.1 | 2.242 ms |
+
+The B+ tree is smaller than the B-tree here because the bulk loader packs
+nodes to capacity; the B-tree was built by repeated insertion. The flat
+baselines use roughly 21 bytes per key and cannot answer ordered ranges
+without scanning or sorting. This is the central trade-off of the chapter:
+tree memory buys ordered access and a bounded number of node visits.
+
+#### Time
+
+`make benchmark ARGS="tree --repetitions=5"`. Search benchmarks perform one
+lookup per call; insert and bulk-load benchmarks perform a whole batch per
+call, as noted by their names.
+
+| benchmark | iterations | median | ops/sec |
+|---|---:|---:|---:|
+| btree-search | 100,000 | 88.134 ms | 1,134,638 |
+| bplus-search | 100,000 | 72.584 ms | 1,377,706 |
+| sorted-array-search | 100,000 | 54.620 ms | 1,830,840 |
+| php-array-search | 100,000 | 7.976 ms | 12,537,875 |
+| btree-insert-1k | 10 | 8.625 ms | 1,159 |
+| bplus-insert-1k | 10 | 11.257 ms | 888 |
+| bplus-bulk-load-10k | 10 | 3.123 ms | 3,202 |
+| btree-build-delete-200 | 10 | 10.448 ms | 957 |
+| bplus-range-100 | 100,000 | 476.117 ms | 210,032 |
+
+The PHP array wins the point-lookup race by an order of magnitude because it
+is a hash table with no ordering to maintain. The B+ tree is slightly faster
+than the B-tree for lookups here; the B-tree's extra space and different node
+shape do not make it a universal winner. B+ insertion is slower because it
+searches before inserting, while the B-tree uses the same traversal to find
+the leaf and split. The range benchmark is a batch of 100,000 ranges; its
+ops/sec is ranges per second, not keys per second.
+
+#### What the chapter concludes
+
+- Height is controlled by fanout: at one million keys the height fell from 9
+  at t = 4 to 4 at t = 32, while bytes/key fell as headers were amortized.
+- Sorted insertion is a different access pattern, not automatically a better
+  one. The tree remains valid, but the split pattern changes the height.
+- B+ linked leaves make a range scan linear in the result plus one root-to-leaf
+  path; the measured node reads show that the path is not paid per leaf.
+- A page model supports the I/O argument, but it is not an OS page cache.
+  Binary comparisons are not page reads; the model charges a page to each
+  tree node and separates the two measurements.
+- The flat array is the right point-lookup baseline; the tree is the right
+  ordered-index structure. Neither statement needs a universal winner.
+- B+ deletion was not implemented in this phase. The B-tree deletion path is
+  the rebalancing demonstration; adding B+ deletion would need separate
+  borrow/merge rules for internal separators and leaf links.
