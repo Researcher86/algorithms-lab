@@ -22,6 +22,7 @@ final class Counters
     public int $collisions = 0;
     public int $nodeReads = 0;
     public int $swaps = 0;
+    public int $relinks = 0;
     public int $rehashes = 0;
 
     public function reset(): void
@@ -32,6 +33,7 @@ final class Counters
         $this->collisions = 0;
         $this->nodeReads = 0;
         $this->swaps = 0;
+        $this->relinks = 0;
         $this->rehashes = 0;
     }
 
@@ -44,6 +46,7 @@ final class Counters
             'collisions' => $this->collisions += $amount,
             'nodeReads' => $this->nodeReads += $amount,
             'swaps' => $this->swaps += $amount,
+            'relinks' => $this->relinks += $amount,
             'rehashes' => $this->rehashes += $amount,
             default => throw new InvalidArgumentException(sprintf('Unknown counter: %s', $name)),
         };
@@ -61,6 +64,7 @@ final class Counters
             'collisions' => $this->collisions,
             'nodeReads' => $this->nodeReads,
             'swaps' => $this->swaps,
+            'relinks' => $this->relinks,
             'rehashes' => $this->rehashes,
         ];
     }

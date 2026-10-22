@@ -31,8 +31,10 @@ final class CountersTest extends TestCase
         $counters = new Counters();
         $counters->add('nodeReads', 4);
         $counters->add('nodeReads');
+        $counters->add('relinks', 3);
 
         self::assertSame(5, $counters->nodeReads);
+        self::assertSame(3, $counters->relinks);
     }
 
     public function testUnknownCounterIsRejected(): void
