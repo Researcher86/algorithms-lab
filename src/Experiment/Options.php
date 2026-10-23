@@ -22,10 +22,21 @@ final readonly class Options
         'iterations' => 'times to repeat a measured operation',
         'capacity' => 'cache capacity or bucket count',
         'load-factor' => 'target load factor, greater than 0 and at most 1',
+        'input-mb' => 'input size in MiB for an external sort',
+        'chunk-mb' => 'chunk size in MiB for an external sort',
+        'fan-in' => 'maximum number of runs merged at once',
         'seed' => 'seed for a reproducible dataset',
     ];
 
-    private const INTEGER_OPTIONS = ['size', 'elements', 'iterations', 'capacity'];
+    private const INTEGER_OPTIONS = [
+        'size',
+        'elements',
+        'iterations',
+        'capacity',
+        'input-mb',
+        'chunk-mb',
+        'fan-in',
+    ];
 
     /**
      * @param array<string, int|float|string> $values
@@ -118,6 +129,21 @@ final readonly class Options
     public function loadFactor(float $default): float
     {
         return (float) ($this->values['load-factor'] ?? $default);
+    }
+
+    public function inputMb(int $default): int
+    {
+        return (int) ($this->values['input-mb'] ?? $default);
+    }
+
+    public function chunkMb(int $default): int
+    {
+        return (int) ($this->values['chunk-mb'] ?? $default);
+    }
+
+    public function fanIn(int $default): int
+    {
+        return (int) ($this->values['fan-in'] ?? $default);
     }
 
     public function seed(string $default): string
