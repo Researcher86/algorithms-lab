@@ -19,6 +19,9 @@ final class OptionsTest extends TestCase
             'input-mb' => '100',
             'chunk-mb' => '8',
             'fan-in' => '32',
+            'requests' => '1000',
+            'urls' => '100',
+            'top' => '10',
             'seed' => 'test',
         ]);
 
@@ -28,10 +31,24 @@ final class OptionsTest extends TestCase
         self::assertSame(100, $options->inputMb(1));
         self::assertSame(8, $options->chunkMb(1));
         self::assertSame(32, $options->fanIn(1));
+        self::assertSame(1000, $options->requests(1));
+        self::assertSame(100, $options->urls(1));
+        self::assertSame(10, $options->top(1));
         self::assertSame('test', $options->seed('default'));
         self::assertSame(1, $options->size(1));
         self::assertSame(1, $options->iterations(1));
-        self::assertSame(['elements', 'capacity', 'load-factor', 'input-mb', 'chunk-mb', 'fan-in', 'seed'], $options->names());
+        self::assertSame([
+            'elements',
+            'capacity',
+            'load-factor',
+            'input-mb',
+            'chunk-mb',
+            'fan-in',
+            'requests',
+            'urls',
+            'top',
+            'seed',
+        ], $options->names());
     }
 
     public function testNoneReturnsAllDefaults(): void

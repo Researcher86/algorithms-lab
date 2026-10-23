@@ -1,5 +1,5 @@
 .PHONY: up down build shell htop install test analyse format format-check check \
-        experiment experiment-debug benchmark benchmark-debug
+        experiment experiment-debug scenario benchmark benchmark-debug
 
 # CI has no terminal to attach to (GitHub Actions sets CI=true), so exec runs
 # without one there; locally it keeps the TTY for colours and interactive use.
@@ -39,6 +39,11 @@ check: test analyse format-check
 
 experiment: up
 	docker compose exec $(TTY) php php bin/experiment $(ARGS)
+
+# The MVP integration scenario has a stable name; ARGS can still override its
+# sample size or seed.
+scenario: up
+	docker compose exec $(TTY) php php bin/experiment scenario:log-pipeline $(ARGS)
 
 benchmark: up
 	docker compose exec $(TTY) php php bin/benchmark $(ARGS)

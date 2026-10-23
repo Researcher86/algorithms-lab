@@ -25,6 +25,9 @@ final readonly class Options
         'input-mb' => 'input size in MiB for an external sort',
         'chunk-mb' => 'chunk size in MiB for an external sort',
         'fan-in' => 'maximum number of runs merged at once',
+        'requests' => 'number of requests in an access-log scenario',
+        'urls' => 'distinct URL alphabet size in an access-log scenario',
+        'top' => 'number of entries in a top-K result',
         'seed' => 'seed for a reproducible dataset',
     ];
 
@@ -36,6 +39,9 @@ final readonly class Options
         'input-mb',
         'chunk-mb',
         'fan-in',
+        'requests',
+        'urls',
+        'top',
     ];
 
     /**
@@ -144,6 +150,21 @@ final readonly class Options
     public function fanIn(int $default): int
     {
         return (int) ($this->values['fan-in'] ?? $default);
+    }
+
+    public function requests(int $default): int
+    {
+        return (int) ($this->values['requests'] ?? $default);
+    }
+
+    public function urls(int $default): int
+    {
+        return (int) ($this->values['urls'] ?? $default);
+    }
+
+    public function top(int $default): int
+    {
+        return (int) ($this->values['top'] ?? $default);
     }
 
     public function seed(string $default): string
