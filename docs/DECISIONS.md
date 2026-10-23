@@ -402,3 +402,76 @@ was made. New decisions are appended with a date.
   array at the same key count.
 - No multi-size time fit is claimed. The two height points and the counters
   support the asymptotic argument; the benchmark is a fixed-size suite.
+
+## 2026-10-23 — One node-hash contract, three strategies
+
+- `NodeHash` exposes only `addNode`, `removeNode`, `getNode` and `nodeCount`.
+  `ModuloHash`, `HashRing` and `RendezvousHash` implement it, so the remapping
+  experiment changes the strategy without changing the mapping loop. The ring
+  adds `getNodes()` for replica order; that operation is intentionally not part
+  of the shared contract because modulo hashing has no meaningful clockwise
+  fallback.
+- All three strategies hash with `Hashers::xxh128()` and take the low 60 bits.
+  Using the same function isolates the mapping strategy from hash quality or
+  speed. It also keeps every position in a positive signed 64-bit integer.
+- Node ids are non-empty strings. Virtual tokens hash `node-id#replica`; this
+  makes every token deterministic and human-readable in a debugger.
+
+## 2026-10-23 — Ring positions are sorted on mutation
+
+- `HashRing` stores a position-to-node map, a sorted list of positions, and a
+  per-node list of its positions. A lookup hashes the key, binary-searches the
+  first position at or after the hash, wraps to zero, and returns that node.
+- A token collision probes the next free position modulo the 60-bit space. The
+  space is large enough that collisions are rare, but the code does not rely on
+  that for correctness.
+- `addNode` and `removeNode` rebuild the sorted position list. That is
+  `O(V log V)` in the total token count, not the `O(log V)` update a balanced
+  tree of tokens would provide. The benchmark shows the cost, and the
+  complexity section states it rather than claiming a production implementation.
+- `getNodes(key, R)` starts at the same position and walks clockwise, skipping
+  virtual tokens owned by a node already in the result. This is the fallback
+  order used by the failure experiment. It is not a replication protocol and
+  does not move data.
+
+## 2026-10-23 — Virtual nodes are fixed per ring
+
+- `HashRing` takes one `virtualNodes` count for the whole ring. Per-node
+  weights would be a useful extension, but they would make the balance
+  experiment a different question: the chapter first shows the cost of
+  smoothing an unweighted ring.
+- 100 virtual nodes is the default. The balance experiment sweeps 1, 10, 100
+  and 500 so the reader sees both the distribution improvement and the ring
+  growth. The add/remove benchmark uses 20 nodes and 100 tokens per node, which
+  gives 2,000 positions.
+- The ring does not implement jump consistent hashing. Jump hashing is a
+  different algorithm with no ring and no virtual nodes; calling it a ring
+  variant would blur the comparison. It remains a possible later chapter
+  extension.
+
+## 2026-10-23 — Rendezvous is a real alternative, not a footnote
+
+- `RendezvousHash` scores every physical node for a key and picks the highest
+  score. Ties are broken by the smaller node id so the result is deterministic.
+  Adding or removing a node only changes keys whose winner was that node, so
+  the remapping ideal is the same `1/(n + 1)` as a perfectly balanced ring.
+- The price is `O(n)` hashes per lookup. The benchmark shows it: with 20 nodes,
+  rendezvous is slower than a binary search over 2,000 ring tokens, while
+  add/remove is trivial because there is no ring to rebuild.
+- Rendezvous has no `getNodes()` in this phase. Replica selection would mean
+  taking the top R scores, which is a natural extension, but the chapter's
+  replica experiment is about the ring's clockwise fallback order.
+
+## 2026-10-23 — Remapping is measured against the right ideal
+
+- Adding one node to `n` nodes should move about `1/(n + 1)` of keys. Removing
+  one node from `n + 1` should move the same share. The experiment reports both
+  the ring and rendezvous fractions against that ideal, and modulo beside them
+  as the counterexample.
+- Modulo's changed fraction is about `n/(n + 1)`, not `1/(n + 1)`, because the
+  divisor changes for almost every key. The table's ideal column is the
+  consistent-hashing ideal; the text explains why modulo is expected to miss
+  it.
+- A finite sample and an imperfect ring produce small deviations (9.61% and
+  10.13% around 9.09% in the recorded run). The chapter does not fit a curve to
+  two node counts or turn a single run into a universal constant.

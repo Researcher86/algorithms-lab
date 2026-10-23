@@ -225,7 +225,7 @@ across moves: `hash:load-factor`, `bloom:fpr`, `cache:zipf`, `graph:dijkstra`,
 | 02 | LRU / LFU Cache | Cache | LRUCache, LFUCache, HeapLFU, NaiveLRU, ArrayLRU | cache:zipf, cache:scan, cache:loop, cache:shift, cache:memory | cache |
 | 03 | Graph Algorithms | Graph | AdjacencyList, AdjacencyMatrix, EdgeList, CsrGraph, Bfs, Dfs, TopologicalSort, Dijkstra, DijkstraDecreaseKey, BellmanFord, Kruskal, Prim, UnionFind | graph:representations, graph:traversal, graph:dijkstra, graph:topological-sort, graph:dsu | graph |
 | 04 | B-Tree and Search | Tree | BTree, BPlusTree, PageSimulator, SortedArrayIndex, PhpArrayIndex, KeyGenerator | tree:height, tree:insert-patterns, tree:range, tree:page-reads, tree:memory | tree |
-| 05 | Consistent Hashing | ConsistentHash | HashRing, RendezvousHash, ModuloHash | ring:remap, ring:balance, ring:replicas | ring |
+| 05 | Consistent Hashing | ConsistentHash | NodeHash, HashRing, RendezvousHash, ModuloHash | ring:remap, ring:balance, ring:replicas | ring |
 | 06 | Top-K and Stream Processing | Stream | TopKHeap, QuickSelect, CountMinSketch, SpaceSaving | stream:top-k, stream:sketch, stream:unique, stream:drift | stream |
 | 07 | External Sorting | ExternalSort | ExternalSorter, ChunkReader, KWayMerge | sort:memory-limit, sort:fan-in, sort:patterns, sort:io | external-sort |
 
@@ -552,20 +552,48 @@ search loses when each probe is an I/O; sorted insertion is not automatically a
 better shape; deletion rebalancing; and why a B+ linked-leaf range scan is a
 different operation from point lookup. Deferred to the book phase.
 
-### Phase 6 — Chapter 05: Consistent Hashing
+### Phase 6 — Chapter 05: Consistent Hashing — code and measurements complete
 
-**Code:** ModuloHash baseline, HashRing with sorted positions, virtual nodes,
-binary search, add/remove/getNodes; RendezvousHash; JumpConsistentHash as
-stretch.
+**Status (2026-10-23):** the implementation, tests, experiments and benchmark
+suite are complete. The book excerpt is deferred to Phase 11, where every
+chapter is written against a tagged release. Jump consistent hashing, weighted
+nodes and data replication were not built.
 
-**Experiments:** remapped-key fraction versus 1/(N+1); max/mean, CV and
-chi-square at 1/10/100/500 virtual nodes; R consecutive nodes and node failure;
-lookup throughput as nodes and vnodes grow.
+**Code:** `src/ConsistentHash/NodeHash.php` is the shared contract;
+`ModuloHash` is the remapping baseline; `HashRing` owns sorted virtual-token
+positions, binary-search lookup, collision probing and `getNodes()` for replica
+order; `RendezvousHash` is the highest-random-weight alternative. All strategies
+use the same xxh128-based hash.
 
-**Benchmark suite:** ring — lookup, add/remove.
+**Expected complexity:** ring lookup O(log V) over V total virtual tokens; ring
+add/remove O(V log V) in this sorted-list implementation; rendezvous lookup
+O(N); modulo lookup O(1); memory O(V + N) for the ring and O(N) for the two
+node-list baselines. Adding or removing one node should move about
+`1/(N + 1)` of keys for a consistent strategy, versus about `N/(N + 1)` for
+modulo.
 
-**Book:** why modulo breaks a cache; the cost of vnodes; ring versus HRW; what
-"uniform" actually means.
+**Experiments:** `ring:remap` measures add/remove fractions against the ideal;
+`ring:balance` sweeps 1/10/100/500 virtual nodes and reports max/mean,
+coefficient of variation and a chi-square relative score; `ring:replicas`
+checks R distinct owners and the fallback after the primary node fails.
+
+**Benchmark suite:** `ring` — ring/modulo/rendezvous lookup, three-replica
+lookup, and add/remove for each strategy.
+
+**Result:** 294 tests and 33,212 assertions pass; PHPStan level 8 reports no
+errors over 160 files; PHP-CS-Fixer reports no changes. The measured tables and
+conclusions are in [docs/BENCHMARKS.md](BENCHMARKS.md). Main findings: modulo
+remapped 91.01% of keys on an add, while the ring and rendezvous remapped
+9.61%/10.13% and 9.03%/9.09% against a 9.09% ideal; 20 nodes and 100 virtual
+nodes per node reduced max/mean from 1.904 at one token to 1.201 and the
+coefficient of variation from 0.565 to 0.107; 500 tokens reached 1.068 and
+0.042; and the ring moved all 2,082 affected keys to the old second replica
+when `node-2` failed. Ring lookup was 1,448,252 ops/sec, modulo 3,321,840 and
+rendezvous 196,098 in the fixed benchmark. No multi-size time fit is claimed.
+
+**Book:** why modulo breaks a cache; the cost of virtual nodes; ring versus
+rendezvous; what "uniform" actually means; fallback order is not replication.
+Deferred to the book phase.
 
 ### Phase 7 — Chapter 06: Top-K and Stream Processing
 

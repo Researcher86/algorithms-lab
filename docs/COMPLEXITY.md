@@ -390,6 +390,94 @@ shape. There is no multi-size time fit: the height/counter evidence supports
 the asymptotic claim, and the benchmark numbers describe one fixed machine and
 one fixed data set.
 
+## Chapter 05 — Consistent hashing
+
+### Expected complexity
+
+Let `N` be the number of physical nodes and `V` the total number of virtual
+tokens. A ring has `V = N * virtualNodes` before collisions.
+
+| Structure or operation | Time | Extra memory |
+|---|---|---|
+| Modulo lookup | O(1) hash plus one modulo | O(1) beyond node list |
+| Modulo add/remove | O(N) in this list implementation; the divisor changes | O(N) for nodes |
+| HashRing lookup | O(log V) binary search after one hash | O(V + N) |
+| HashRing add/remove | O(r) token hashes plus O(V log V) to rebuild the sorted token list, where r is virtual nodes per node | O(V + N) |
+| HashRing getNodes(R) | O(log V) to find the start, then walks tokens clockwise and skips duplicate owners; worst-case O(V), usually close to R | O(R) for the result |
+| Rendezvous lookup | O(N) hashes, one score per physical node | O(N) for nodes |
+| Rendezvous add/remove | O(N) in this list implementation | O(N) for nodes |
+
+The important asymptotic difference is the remapping behavior, not a constant
+factor. With a uniformly distributed ring or rendezvous scores, adding one node
+to N nodes changes about `1/(N + 1)` of keys; removing one from N + 1 changes
+about `1/(N + 1)` as well. Modulo changes almost every key because the divisor
+changes: with N = 10, the expected changed fraction for an add is about 10/11 =
+90.9%, while the consistent strategies are near 1/11 = 9.1%.
+
+A ring spends memory on virtual tokens to buy balance. More tokens reduce the
+variance of the load per node, but every add or remove has more tokens to
+rebuild in this implementation. A production ring would keep tokens in a
+balanced tree or a sorted array with incremental insertion; the chapter states
+the implementation's `O(V log V)` rebuild rather than hiding it behind the
+usual O(log V) lookup claim.
+
+### Measured evidence
+
+`ring:remap` mapped 50,000 keys over 10 nodes with 100 virtual nodes per node,
+then added an eleventh node and removed `node-0` from the eleven-node ring:
+
+| algorithm | add | remove | ideal |
+|---|---:|---:|---:|
+| modulo | 91.01% | 90.76% | 9.09% |
+| ring | 9.61% | 10.13% | 9.09% |
+| rendezvous | 9.03% | 9.09% | 9.09% |
+
+The ring's add fraction is slightly above the ideal because 50,000 keys are a
+finite sample and its tokens are not perfectly balanced; the removal value is
+slightly above it for the same reason. Rendezvous is close to the ideal because
+every node gets a score for every key, so the winner is exactly the node with
+the highest score.
+
+`ring:balance` mapped 100,000 keys onto 20 nodes. With one token per node, the
+maximum/mean ratio was 1.904 and the coefficient of variation was 0.565. At
+100 tokens per node the values were 1.201 and 0.107; at 500 tokens they were
+1.068 and 0.042. The chi-square score fell from 31,870.48 to 178.88. It is a
+relative error score, not a p-value. The measured improvement is the evidence
+for the balance claim; the exact curve depends on the hash and the node ids.
+
+`ring:replicas` uses the same ring for fallback order. With 20,000 keys and 10
+nodes, `getNodes(key, R)` returned R distinct owners for R = 1, 2 and 3, and
+covered all 10 nodes. Removing `node-2` moved 2,082 keys (10.41%, close to the
+10.00% expected share) to their old second replica, while all 17,918 unaffected
+keys kept their primary. This validates the ordering rule, not a replication
+protocol: no data is copied.
+
+### Time and memory
+
+The `ring` benchmark uses 20 nodes and 100 virtual nodes per node. The ring
+lookup took 69.049 ms for 100,000 operations (1,448,252 ops/sec); modulo took
+30.104 ms (3,321,840 ops/sec); rendezvous took 254.973 ms for 50,000 operations
+(196,098 ops/sec). The ring's binary search over 2,000 tokens is slower than a
+single modulo and much faster than hashing all 20 nodes for rendezvous.
+
+Add/remove for 1,000 operations took 295.966 ms for the ring, 0.281 ms for
+modulo and 0.281 ms for rendezvous. The ring number is dominated by rebuilding
+a sorted list of 2,000 tokens on every change. That is a real cost of this
+implementation and the reason `ring:balance` reports the ring size alongside
+the balance numbers. The ring is not universally faster; it is the structure
+that preserves mappings while remaining a logarithmic lookup.
+
+### What is not claimed
+
+The chapter does not implement weighted nodes, a jump consistent hash, failure
+detection, data replication, or a multi-size time fit. The ring positions are
+computed with the same xxh128-based function for all three strategies, so the
+comparison isolates the mapping strategy. Hash collisions are resolved by
+linear probing to the next free position; with the 60-bit space used here they
+are rare, so the experiments do not claim a collision distribution. Memory is
+reported only as the ring size in tokens, not as bytes; the chapter measures
+lookup and remapping behavior, not allocator overhead.
+
 ## Status
 
 Phase 1 defines the instrumentation and the fit helper. Chapter 01 publishes
@@ -399,5 +487,7 @@ hit-ratio behavior, but also has one benchmark size. Chapter 03 adds graph
 representation memory, exact traversal counters, heap-pop evidence for
 Dijkstra and union-find read counts, still with one size per question. Chapter
 04 adds height and node-read evidence at two sizes, a linked-leaf range
-counter, and a page model that is kept separate from wall-clock time. Later
-chapters add multi-size fits where the question requires one.
+counter, and a page model that is kept separate from wall-clock time. Chapter
+05 adds remapping fractions against the `1/(n + 1)` ideal, a virtual-node
+balance sweep, replica-failure checks, and a fixed-size lookup/add-remove
+benchmark. Later chapters add multi-size fits where the question requires one.

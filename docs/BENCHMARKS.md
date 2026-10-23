@@ -66,19 +66,24 @@ make experiment ARGS="tree:range --seed=book"
 make experiment ARGS="tree:page-reads --seed=book"
 make experiment ARGS="tree:memory --seed=book"
 
+make experiment ARGS="ring:remap --seed=book"
+make experiment ARGS="ring:balance"
+make experiment ARGS="ring:replicas"
+
 make benchmark ARGS="demo"
 make benchmark ARGS="hash-table --repetitions=5"
 make benchmark ARGS="bloom --repetitions=5"
 make benchmark ARGS="cache --repetitions=5"
 make benchmark ARGS="graph --repetitions=5"
 make benchmark ARGS="tree --repetitions=5"
+make benchmark ARGS="ring --repetitions=5"
 make benchmark ARGS="hash-table --format=json --output=var/results/hash-table.json"
 ```
 
 Every suite records the environment block. Text is for reading, JSON for
 keeping, CSV for comparing runs in a spreadsheet. The `demo` suite is the
-smoke test; `hash-table`, `bloom`, `cache`, `graph` and `tree` are the chapter
-suites.
+smoke test; `hash-table`, `bloom`, `cache`, `graph`, `tree` and `ring` are
+the chapter suites.
 
 ## Container numbers
 
@@ -679,3 +684,121 @@ ops/sec is ranges per second, not keys per second.
 - B+ deletion was not implemented in this phase. The B-tree deletion path is
   the rebalancing demonstration; adding B+ deletion would need separate
   borrow/merge rules for internal separators and leaf links.
+
+### Chapter 05 — Consistent Hashing
+
+These are development numbers, not the book's reference measurements. They
+were taken in Docker on macOS at commit `9ebaa1e`; the harness printed:
+
+```text
+PHP 8.5.11 on Linux 7.0.14-linuxkit, aarch64 x 12, memory_limit 512M, cgroup unlimited
+OPcache off, JIT off, Xdebug off, allocator Zend MM
+```
+
+All three strategies hash with the same xxh128-based function, so the
+comparison is about the mapping strategy rather than a faster hash. Node ids
+are strings; a virtual token is hashed from `node-id#replica`.
+
+#### Remapping after a node change
+
+`make experiment ARGS="ring:remap --seed=book"` uses 50,000 keys, 10 nodes and
+100 virtual nodes per node. It maps every key, adds an eleventh node, maps
+again, then removes `node-0` from the eleven-node ring and measures again.
+
+| algorithm | change | changed fraction | ideal |
+|---|---|---:|---:|
+| modulo | add | 91.01% | 9.09% |
+| modulo | remove | 90.76% | 9.09% |
+| ring | add | 9.61% | 9.09% |
+| ring | remove | 10.13% | 9.09% |
+| rendezvous | add | 9.03% | 9.09% |
+| rendezvous | remove | 9.09% | 9.09% |
+
+Modulo hashes the key and takes it modulo the current node count. Changing the
+divisor changes almost every remainder, so the cache is effectively flushed.
+The ring and rendezvous change only the keys that were owned by the changed
+node. Their fractions are close to the ideal `1/(n + 1)`, not exactly equal:
+this is a finite sample and the ring's tokens are not perfectly balanced. The
+ideal is the share of keys the changed node owned, not a guarantee for every
+run.
+
+#### Virtual-node balance
+
+`make experiment ARGS="ring:balance"` maps 100,000 keys onto 20 nodes. With one
+token per node the ring is visibly lumpy; more tokens smooth it.
+
+| virtual nodes | ring size | max/mean | coefficient of variation | chi-square score |
+|---:|---:|---:|---:|---:|
+| 1 | 20 | 1.904 | 0.565 | 31,870.48 |
+| 10 | 200 | 1.485 | 0.276 | 7,628.24 |
+| 100 | 2,000 | 1.201 | 0.107 | 1,150.45 |
+| 500 | 10,000 | 1.068 | 0.042 | 178.88 |
+
+The chi-square column is a relative error score: `sum((observed - expected)^2 /
+expected)`, not a p-value. Lower is better. The maximum-to-mean ratio improves
+from 1.904 to 1.068, and the coefficient of variation falls from 0.565 to
+0.042. The price is visible in the ring size: 10,000 tokens at 500 virtual
+nodes. Lookup remains a binary search, but adding or removing a node has more
+tokens to rebuild.
+
+#### Replicas and failure
+
+`make experiment ARGS="ring:replicas"` uses 20,000 keys, 10 nodes and 100
+virtual nodes per node. `getNodes(key, R)` walks clockwise and skips duplicate
+owners.
+
+| R | average distinct owners | node coverage |
+|---:|---:|---:|
+| 1 | 1.00 | 10/10 |
+| 2 | 2.00 | 10/10 |
+| 3 | 3.00 | 10/10 |
+
+The experiment then removes `node-2` and checks the fallback claim:
+
+- 2,082 keys (10.41%) had `node-2` as primary; the expected share was 10.00%.
+- All 2,082 of those keys moved to the old second replica.
+- All 17,918 unaffected keys kept their primary.
+
+This is a fallback order, not a replication protocol. The experiment does not
+copy data, detect failures, or promise that the second replica is on a
+different physical host; it only demonstrates the ring's ordering rule.
+
+#### Time
+
+`make benchmark ARGS="ring --repetitions=5"` uses 20 nodes and 100 virtual
+nodes per node. Add/remove benchmarks perform one add and one remove per
+operation, so their ops/sec is add-remove pairs per second.
+
+| benchmark | iterations | median | ops/sec |
+|---|---:|---:|---:|
+| ring-lookup | 100,000 | 69.049 ms | 1,448,252 |
+| ring-replicas-3 | 50,000 | 50.540 ms | 989,312 |
+| modulo-lookup | 100,000 | 30.104 ms | 3,321,840 |
+| rendezvous-lookup | 50,000 | 254.973 ms | 196,098 |
+| ring-add-remove | 1,000 | 295.966 ms | 3,378 |
+| modulo-add-remove | 1,000 | 0.281 ms | 3,556,605 |
+| rendezvous-add-remove | 1,000 | 0.281 ms | 3,553,445 |
+
+Modulo is the fastest lookup and the worst at preserving mappings. Rendezvous
+has no ring to rebuild and moves the ideal share, but every lookup hashes every
+node; with 20 nodes it is about four times slower than the ring in this run.
+The ring's lookup is a binary search over 2,000 tokens. Add/remove is much
+slower in this implementation because each change rebuilds the sorted token
+list; that is a deliberate, measured trade-off, not an asymptotic requirement
+of consistent hashing (a balanced tree of tokens would change the constant).
+
+#### What the chapter concludes
+
+- Modulo is the right baseline precisely because it is fast and simple; it is
+  the wrong choice when the node set changes, because remapping is the cache
+  flush.
+- A ring moves about `1/(n + 1)` of keys when one node changes. The measured
+  9.61%/10.13% at ten and eleven nodes is close to the 9.09% ideal.
+- Virtual nodes buy balance. At 20 nodes, 100 tokens per node reduce the
+  maximum/mean ratio to 1.201 and the coefficient of variation to 0.107; 500
+  tokens improve it further but cost five times the ring memory.
+- Rendezvous hashing has the same remapping property without virtual nodes or
+  a ring, at O(n) hash cost per lookup. It is a legitimate alternative, not a
+  footnote.
+- Replicas are the next `R` distinct clockwise owners. Node failure moves the
+  affected keys to the next owner, and keys on other nodes stay put.

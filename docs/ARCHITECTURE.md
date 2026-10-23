@@ -117,6 +117,14 @@ not an algorithm.
   shuffled, ascending and descending key sets.
 - Tree experiments are `tree:height`, `tree:insert-patterns`, `tree:range`,
   `tree:page-reads` and `tree:memory`; the benchmark suite is `tree`.
+- Chapter 05 lives in `src/ConsistentHash/`. `NodeHash` is the minimal contract
+  shared by `ModuloHash`, `HashRing` and `RendezvousHash`. `HashRing` owns
+  sorted virtual-token positions, binary-search lookup and `getNodes()` for the
+  clockwise replica order; `ModuloHash` is the remapping baseline and
+  `RendezvousHash` is the highest-random-weight alternative. The ring resolves
+  token collisions by probing the next free position.
+- Ring experiments are `ring:remap`, `ring:balance` and `ring:replicas`; the
+  benchmark suite is `ring`.
 - `src/Foundation/IndexedMinHeap.php` is the decrease-key heap used by
   `DijkstraDecreaseKey`; `UnionFind` accepts path-compression and union-by-rank
   flags plus an optional `Counters`, which is what makes the DSU experiment a

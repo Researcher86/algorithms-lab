@@ -8,7 +8,7 @@
 
 This repository is the code behind the seven chapters of
 [Algorithms Lab](https://github.com/Researcher86/engineering-lab-book/tree/master/algorithms-lab).
-The Docker environment, the measurement harness and the first four chapters are
+The Docker environment, the measurement harness and the first five chapters are
 complete; the build journal, including the full plan for the remaining
 chapters, lives in [docs/PHASES.md](docs/PHASES.md).
 
@@ -32,7 +32,7 @@ make experiment ARGS="demo:smoke"            # run one
 make benchmark ARGS="demo"                   # text report with environment
 ```
 
-The first four chapters are runnable as well:
+The first five chapters are runnable as well:
 
 ```bash
 make experiment ARGS="hash:load-factor --elements=20000 --seed=book"
@@ -43,10 +43,13 @@ make experiment ARGS="graph:representations --seed=book"
 make experiment ARGS="graph:dijkstra --seed=book"
 make experiment ARGS="tree:height --seed=book"
 make experiment ARGS="tree:range --seed=book"
+make experiment ARGS="ring:remap --seed=book"
+make experiment ARGS="ring:balance"
 make benchmark ARGS="hash-table --repetitions=5"
 make benchmark ARGS="cache --repetitions=5"
 make benchmark ARGS="graph --repetitions=5"
 make benchmark ARGS="tree --repetitions=5"
+make benchmark ARGS="ring --repetitions=5"
 ```
 
 The other two gates CI runs:
@@ -78,14 +81,14 @@ The order is fixed by the book. Implementation follows the same order.
 | 02 | LRU / LFU Cache | ✅ code and measurements |
 | 03 | Graph Algorithms | ✅ code and measurements |
 | 04 | B-Tree and Search | ✅ code and measurements |
-| 05 | Consistent Hashing | next |
-| 06 | Top-K and Stream Processing | planned |
+| 05 | Consistent Hashing | ✅ code and measurements |
+| 06 | Top-K and Stream Processing | next |
 | 07 | External Sorting | planned |
 
-Phase 0, Phase 1 and the code and measurements of Chapters 01–04 are complete:
+Phase 0, Phase 1 and the code and measurements of Chapters 01–05 are complete:
 the container, the foundation, the instrumentation, the experiment/benchmark
-harness and the hash-table/Bloom-filter, cache, graph and tree chapters all run
-through `make check` locally and in CI. Chapter 05 is next. The Russian book
+harness and the hash-table/Bloom-filter, cache, graph, tree and consistent-hash
+chapters all run through `make check` locally and in CI. Chapter 06 is next. The Russian book
 chapters are written after the code chapters, against a tagged release.
 
 ## Documentation
@@ -125,7 +128,8 @@ LRU, LFU, heap-LFU and two baselines; Chapter 03 adds `src/Graph/` with four
 representations, traversals, shortest paths, topological sort, MST and
 deterministic generators; Chapter 04 adds `src/Tree/` with a B-tree, a
 linked-leaf B+ tree, sorted/array baselines, a page-cost model and reproducible
-key sets. The experiment and benchmark entry points are discoverable: drop a
+key sets; Chapter 05 adds `src/ConsistentHash/` with a virtual-node ring, a
+rendezvous-hash alternative and a modulo baseline. The experiment and benchmark entry points are discoverable: drop a
 descriptor under `experiments/` or `benchmarks/` and it appears in the list
 without editing a central registry.
 
