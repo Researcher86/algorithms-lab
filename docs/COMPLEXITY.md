@@ -598,6 +598,128 @@ full frequency map next to a bounded summary. No multi-size time fit is
 claimed: the benchmark is one fixed shape, and the complexity table is theory
 plus targeted counters.
 
+## Chapter 07 — External sorting
+
+### Expected complexity
+
+The external-memory model matters more than the in-memory comparison. Let `N`
+be the number of records, `C` the chunk size in bytes, `R = ceil(N / C)` the
+number of initial runs, and `F` the merge fan-in.
+
+| Phase | Time or I/O | Extra memory |
+|---|---|---|
+| Read and sort one chunk | O(C log C) comparisons for the records in that chunk | O(C) |
+| Initial run creation | O(N log C) comparisons, one write of N records | O(C) |
+| k-way merge | O(N log F) comparisons per pass through N records | O(F) heap entries plus one record buffer per run |
+| Passes | `max(1, ceil(log_F R))` in this implementation | — |
+| Logical I/O | one read and one write of N per merge pass, plus the initial spill and final output | — |
+| Whole sort | O(N log C + N log_F R) comparisons; I/O proportional to the number of passes | O(C + F) live records |
+
+The number of passes is the central external-memory cost. A two-way merge does
+`ceil(log_2 R)` passes; a 32-way merge does `ceil(log_32 R)` but must keep 32
+run heads open. A merge heap chooses the next record in O(log F), which is why
+the k-way merge is not O(N) per pass in comparisons even though it is O(N) in
+I/O. The implementation deliberately counts the final merge as a pass: even a
+single run is copied through one final merge rather than renamed, so the stats
+match the I/O the code actually performs.
+
+The chunk size is a memory bound, not the PHP memory cost. A chunk is an array
+of strings plus a merge buffer plus the current run heads; 128 MiB of input
+records measured 291.4 MiB of PHP allocator peak. The right chunk is the largest
+one that leaves headroom under the configured `memory_limit`, not the largest
+nominal byte count.
+
+Stability has two parts. PHP's `usort` is stable inside a chunk, so equal keys
+keep their input order there. During a merge, the heap orders by the user
+comparator and then by run number, so equal keys from an earlier run come first.
+A multi-pass merge preserves group order, so the rule composes. No sequence
+number is stored in the record; the run number is enough.
+
+The in-memory alternative, `file()` plus `sort()`, is O(N log N) time and O(N)
+memory. It is faster on small inputs and not a solution when the input does not
+fit the memory limit; the bounded-memory test makes that concrete.
+
+### Measured evidence
+
+The generated record is 76 bytes: a 10-digit key, a space, a 64-byte payload and
+a newline. The 100 MiB input is 1,379,705 records; 500 MiB is 6,898,526
+records. All times exclude dataset generation, and all I/O counts are logical
+record bytes, not filesystem blocks.
+
+On 100 MiB with fan-in 8:
+
+| chunk | initial runs | passes | elapsed | logical I/O | PHP peak |
+|---:|---:|---:|---:|---:|---:|
+| 8 MiB | 13 | 2 | 5.389 s | 600.0 MiB | 29.6 MiB |
+| 32 MiB | 4 | 1 | 3.954 s | 400.0 MiB | 118.3 MiB |
+| 128 MiB | 1 | 1 | 3.190 s | 400.0 MiB | 291.4 MiB |
+
+The extra pass at 8 MiB costs 200 MiB of logical I/O (one more read and write of
+the 100 MiB data) and about 1.2-1.4 seconds here. The 128 MiB chunk is fastest
+but cannot run under a 128M limit; this is the memory/run-count trade-off in
+one table.
+
+With a fixed 8 MiB chunk and 13 initial runs, fan-in changed the pass count:
+
+| fan-in | passes | open files | elapsed | logical I/O |
+|---:|---:|---:|---:|---:|
+| 2 | 4 | 2 | 6.370 s | 1,000.0 MiB |
+| 8 | 2 | 8 | 5.320 s | 600.0 MiB |
+| 32 | 1 | 13 | 4.985 s | 400.0 MiB |
+| 128 | 1 | 13 | 4.647 s | 400.0 MiB |
+
+The last two rows cannot reduce passes further because there are only 13 runs.
+Fan-in 128 opens no more files than fan-in 32 on this input. The logical
+throughput ratio is higher for fan-in 2 because the extra passes increase the
+numerator; wall time is worse, which is why the report keeps both.
+
+The reduced-set pattern check used 10,000 records, a 16 KiB chunk and fan-in 4.
+All four patterns produced 47 runs and 3 passes; random, sorted, reversed and
+duplicate-heavy took 0.091, 0.079, 0.080 and 0.096 seconds respectively. The
+full output checksum matched a stable in-memory `usort` in every case. The
+duplicate pattern is the stability check: equal keys retain input order across
+chunk and merge boundaries. There is no pre-sorted fast path; the sorter treats
+all four patterns through the same chunk-sort-spill-merge path.
+
+The I/O experiment used a 100 MiB input, 8 MiB chunk and fan-in 32 for the first
+row, then a 500 MiB input with a 32 MiB chunk and fan-in 32:
+
+| input | memory limit | runs | passes | elapsed | logical I/O | PHP peak |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100 MiB | 512M | 13 | 1 | 4.659 s | 400.0 MiB | 29.6 MiB |
+| 500 MiB | 512M | 16 | 1 | 27.201 s | 2,000.0 MiB | 118.4 MiB |
+| 500 MiB | 128M | 16 | 1 | 26.843 s | 2,000.0 MiB | 118.4 MiB |
+
+The 500 MiB / 128M run is the practical bounded-memory evidence: the PHP peak
+is 118.4 MiB, under the 128M limit with only about 10 MiB of headroom. The
+128 MiB chunk row above would not fit; the memory limit chooses the chunk, not
+the other way around.
+
+The benchmark used an 8 MiB input, one sort per iteration and five repetitions.
+Median times were 435.965 ms for a 1 MiB chunk/fan-in 4, 221.379 ms for a 4 MiB
+chunk/fan-in 4, 421.688 ms for a 1 MiB chunk/fan-in 2 and 336.893 ms for a 1 MiB
+chunk/fan-in 16. The 4 MiB chunk wins on this small input because it creates only
+two runs; the fan-in rows show the cost of extra passes and the benefit of one
+pass, but the benchmark's memory columns are loop deltas rather than structure
+peaks.
+
+`tests/ExternalSort/BoundedMemoryTest.php` runs an 8 MiB input in a child with
+`-d memory_limit=8M` and a 512 KiB chunk. The external sorter finishes; a naive
+`file()` + `usort()` at the same limit dies with an allowed-memory error. This
+is a regression test for the bounded-memory claim, not a precise threshold for
+every PHP build.
+
+### What is not claimed
+
+This chapter does not model block size or seek latency, does not implement
+replacement selection (which can exploit pre-sorted input to reduce runs), and
+does not compress or parallelize runs. It does not claim the external sorter is
+faster than in-memory sorting on a small input; the 10,000-record pattern table
+shows the opposite. It does not claim equal logical I/O and physical I/O: the
+OS page cache, the bind mount, and the Docker filesystem all sit between the
+counter and the disk. No multi-size time fit is claimed; the measurements are
+one file shape and one Docker host.
+
 ## Status
 
 Phase 1 defines the instrumentation and the fit helper. Chapter 01 publishes
@@ -612,18 +734,8 @@ counter, and a page model that is kept separate from wall-clock time. Chapter
 balance sweep, replica-failure checks, and a fixed-size lookup/add-remove
 benchmark. Chapter 06 adds exact-versus-bounded memory evidence, a
 child-process memory-limit test, detector recall and estimator error at three
-K values, and one fixed-size stream benchmark. Later chapters add multi-size
-fits where the question requires one.
-
-
-Phase 1 defines the instrumentation and the fit helper. Chapter 01 publishes
-measured counters and memory; its time suite has one size, so it does not claim
-a time fit. Chapter 02 adds a counter-backed O(1) pointer claim and measured
-hit-ratio behavior, but also has one benchmark size. Chapter 03 adds graph
-representation memory, exact traversal counters, heap-pop evidence for
-Dijkstra and union-find read counts, still with one size per question. Chapter
-04 adds height and node-read evidence at two sizes, a linked-leaf range
-counter, and a page model that is kept separate from wall-clock time. Chapter
-05 adds remapping fractions against the `1/(n + 1)` ideal, a virtual-node
-balance sweep, replica-failure checks, and a fixed-size lookup/add-remove
-benchmark. Later chapters add multi-size fits where the question requires one.
+K values, and one fixed-size stream benchmark. Chapter 07 adds chunk and
+fan-in sweeps, pass and logical-I/O accounting, a 500 MiB / 128M run, a
+duplicate-heavy stability/checksum check, and an external-sort child-process
+test at 8M. Later phases add the integration scenario, the book chapters and
+the final multi-size fits where a question actually needs one.

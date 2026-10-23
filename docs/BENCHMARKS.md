@@ -75,6 +75,11 @@ make experiment ARGS="stream:heavy-hitters --seed=book"
 make experiment ARGS="stream:all-unique"
 make experiment ARGS="stream:drift --seed=book"
 
+make experiment ARGS="sort:memory-limit --seed=book"
+make experiment ARGS="sort:fan-in --seed=book"
+make experiment ARGS="sort:patterns --seed=book"
+make experiment ARGS="sort:io --seed=book"
+
 make benchmark ARGS="demo"
 make benchmark ARGS="hash-table --repetitions=5"
 make benchmark ARGS="bloom --repetitions=5"
@@ -83,13 +88,14 @@ make benchmark ARGS="graph --repetitions=5"
 make benchmark ARGS="tree --repetitions=5"
 make benchmark ARGS="ring --repetitions=5"
 make benchmark ARGS="stream --repetitions=5"
+make benchmark ARGS="external-sort --repetitions=5"
 make benchmark ARGS="hash-table --format=json --output=var/results/hash-table.json"
 ```
 
 Every suite records the environment block. Text is for reading, JSON for
 keeping, CSV for comparing runs in a spreadsheet. The `demo` suite is the
-smoke test; `hash-table`, `bloom`, `cache`, `graph`, `tree`, `ring` and
-`stream` are the chapter suites.
+smoke test; `hash-table`, `bloom`, `cache`, `graph`, `tree`, `ring`, `stream`
+and `external-sort` are the chapter suites.
 
 ## Container numbers
 
@@ -992,3 +998,145 @@ they replay one deterministic dataset through several algorithms.
   alone does not forget old heavy keys.
 - No multi-size time fit is claimed. The tables describe one Docker run and one
   fixed stream shape.
+
+### Chapter 07 — External Sorting
+
+These are development numbers, not the book's reference measurements. They
+were taken in Docker on macOS at commit `e2e5536`; the harness printed:
+
+```text
+PHP 8.5.11 on Linux 7.0.14-linuxkit, aarch64 x 12, memory_limit 512M, cgroup unlimited
+OPcache off, JIT off, Xdebug off, allocator Zend MM
+```
+
+The generated inputs use 76-byte records: a 10-digit key, a space, a 64-byte
+payload and a newline. A 100 MiB target is 1,379,705 records (104,857,580
+bytes); a 500 MiB target is 6,898,526 records (524,287,976 bytes). Dataset
+generation is excluded from every time below; files are cached under
+`var/datasets/` and are not committed. All experiments use seed `book`.
+
+#### Chunk size
+
+`make experiment ARGS="sort:memory-limit --seed=book"` sorts the same 100 MiB
+file with 8, 32 and 128 MiB chunks and a fixed fan-in of 8.
+
+| chunk | runs | passes | elapsed | logical I/O | MiB/s | PHP peak |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8 MiB | 13 | 2 | 5.389 s | 600.0 MiB | 111.33 | 29.6 MiB |
+| 32 MiB | 4 | 1 | 3.954 s | 400.0 MiB | 101.15 | 118.3 MiB |
+| 128 MiB | 1 | 1 | 3.190 s | 400.0 MiB | 125.38 | 291.4 MiB |
+
+The 8 MiB run needs two merge passes and therefore rewrites the data once more:
+600 MiB of logical I/O versus 400 MiB for one pass. The 128 MiB chunk is fastest
+on this 512M container, but its PHP footprint is 291.4 MiB, not 128 MiB, because
+the chunk is an array of strings and the input buffer. It cannot be used under a
+128M limit. The 32 MiB chunk peaked at 118.3 MiB and is the largest chunk that
+fits the 500 MiB / 128M run below with only a narrow margin.
+
+Passes include the final merge. Even a single run is copied through that final
+merge in this implementation, so the one-run row still reports one pass and
+400 MiB of logical I/O (input, spill write, spill read, output).
+
+#### Fan-in
+
+`make experiment ARGS="sort:fan-in --seed=book"` uses the 100 MiB file, an
+8 MiB chunk and 13 initial runs.
+
+| fan-in | runs | passes | open files | elapsed | logical I/O | MiB/s | PHP peak |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2 | 13 | 4 | 2 | 6.370 s | 1,000.0 MiB | 156.98 | 29.6 MiB |
+| 8 | 13 | 2 | 8 | 5.320 s | 600.0 MiB | 112.79 | 29.6 MiB |
+| 32 | 13 | 1 | 13 | 4.985 s | 400.0 MiB | 80.23 | 29.6 MiB |
+| 128 | 13 | 1 | 13 | 4.647 s | 400.0 MiB | 86.07 | 29.6 MiB |
+
+The `MiB/s` column is logical bytes divided by wall time. It is higher for
+fan-in 2 because three extra passes inflate the numerator; wall time is worse.
+Fan-in 32 and 128 both open the 13 initial runs, so the extra fan-in cannot
+remove another pass. A real service has to choose fan-in against its open-file
+limit, not only against the merge count.
+
+#### Input patterns
+
+`make experiment ARGS="sort:patterns --seed=book"` uses 10,000 records per
+pattern, a 16 KiB chunk and fan-in 4. The comparator sees only the 10-digit
+key; the payload stays in the record. Every complete output was checked against
+a stable in-memory `usort` on the same reduced set.
+
+| pattern | records | runs | passes | external | in-memory | checksum | PHP peak |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| random | 10,000 | 47 | 3 | 0.091 s | 0.012 s | ok | 0.8 MiB |
+| sorted | 10,000 | 47 | 3 | 0.079 s | 0.009 s | ok | 0.8 MiB |
+| reversed | 10,000 | 47 | 3 | 0.080 s | 0.013 s | ok | 0.8 MiB |
+| duplicate | 10,000 | 47 | 3 | 0.096 s | 0.011 s | ok | 0.8 MiB |
+
+The sorter does not detect a pre-sorted or reversed input; all four patterns
+take the same runs and passes. The duplicate pattern is the stability test:
+many records share a key, and chunks plus run-number tie-breaking preserve the
+input order. The in-memory sort is much faster at this tiny size; that is the
+point of the comparison, not a claim that external sorting is faster.
+
+#### I/O and the 128M run
+
+`make experiment ARGS="sort:io --seed=book"` uses the 100 MiB file, an 8 MiB
+chunk and fan-in 32. The 500 MiB measurements use
+`--input-mb=500 --chunk-mb=32 --fan-in=32`; the 128M row was run directly as:
+
+```bash
+docker compose exec -T php php -d memory_limit=128M bin/experiment sort:io \
+  --input-mb=500 --chunk-mb=32 --fan-in=32 --seed=book
+```
+
+| input | limit | runs | passes | elapsed | read | written | logical I/O | MiB/s | PHP peak |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 100 MiB | 512M | 13 | 1 | 4.659 s | 200.0 MiB | 200.0 MiB | 400.0 MiB | 85.86 | 29.6 MiB |
+| 500 MiB | 512M | 16 | 1 | 27.201 s | 1,000.0 MiB | 1,000.0 MiB | 2,000.0 MiB | 73.53 | 118.4 MiB |
+| 500 MiB | 128M | 16 | 1 | 26.843 s | 1,000.0 MiB | 1,000.0 MiB | 2,000.0 MiB | 74.51 | 118.4 MiB |
+
+“Read” includes the input and every spilled run read; “written” includes every
+spill and the output. The 500 MiB / 128M run fits, but the 118.4 MiB peak leaves
+only about 10 MiB of headroom under the PHP limit. The operating system page
+cache can satisfy some reads from memory; the peak is the PHP allocator, not
+RSS.
+
+#### Time
+
+`make benchmark ARGS="external-sort --repetitions=5"` uses an 8 MiB input and
+one sort per timed iteration. Five repetitions and one warm-up are measured.
+
+| benchmark | median | p95 |
+|---|---:|---:|
+| external-sort-chunk-1m | 435.965 ms | 531.748 ms |
+| external-sort-chunk-4m | 221.379 ms | 222.934 ms |
+| external-sort-fanin-2 | 421.688 ms | 432.094 ms |
+| external-sort-fanin-16 | 336.893 ms | 339.214 ms |
+
+The chunk-1m and fan-in rows use a 1 MiB chunk; the chunk-4m row uses 4 MiB.
+Fan-in is 4 unless the benchmark name says otherwise. The 4 MiB chunk is fastest
+here because the 8 MiB input becomes only two initial runs and one merge pass. The benchmark's
+raw PHP-memory columns are loop deltas, not the size of the sorter's structures;
+the experiments above are the memory source.
+
+#### Bounded-memory test
+
+`tests/ExternalSort/BoundedMemoryTest.php` generates an 8 MiB input, starts a
+child process with `-d memory_limit=8M`, and sorts with a 512 KiB chunk and
+fan-in 4. The external sort completes; a naive `file()` + `usort()` on the same
+file dies with an allowed-memory error. The child boundary is deliberate: a
+fatal allocator error is not safely catchable in PHPUnit.
+
+#### What the chapter concludes
+
+- External sorting bounds memory with the chunk, not with the input; the rest
+  of the data is spilled and merged.
+- A larger chunk reduces runs and passes but raises the live PHP footprint. The
+  raw chunk size is not the PHP memory cost: 128 MiB of records measured
+  291.4 MiB.
+- Fan-in reduces passes up to the number of runs; beyond that it adds open files
+  without helping. Extra passes multiply I/O and usually lose wall time even
+  when a logical-throughput ratio looks larger.
+- Pre-sorted, reversed and duplicate-heavy inputs do not get a free shortcut in
+  this implementation; stability is explicit and tested.
+- A 500 MiB input can be sorted under 128M with a 32 MiB chunk. A 128 MiB chunk
+  needs the larger container limit.
+- No multi-size time fit is claimed. This is one file shape, one Docker host and
+  one cache state.

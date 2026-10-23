@@ -213,7 +213,7 @@ algorithms-lab/
 Experiment files are discovered under `experiments/*/*.php`. Each returns an
 `Experiment` descriptor; there is no hand-maintained registry. Names are stable
 across moves: `hash:load-factor`, `bloom:fpr`, `cache:zipf`, `graph:dijkstra`,
-`tree:height`, `ring:remap`, `stream:top-k`, `sort:memory-limit`.
+`tree:height`, `ring:remap`, `stream:topk`, `sort:memory-limit`.
 
 ---
 
@@ -227,7 +227,7 @@ across moves: `hash:load-factor`, `bloom:fpr`, `cache:zipf`, `graph:dijkstra`,
 | 04 | B-Tree and Search | Tree | BTree, BPlusTree, PageSimulator, SortedArrayIndex, PhpArrayIndex, KeyGenerator | tree:height, tree:insert-patterns, tree:range, tree:page-reads, tree:memory | tree |
 | 05 | Consistent Hashing | ConsistentHash | NodeHash, HashRing, RendezvousHash, ModuloHash | ring:remap, ring:balance, ring:replicas | ring |
 | 06 | Top-K and Stream Processing | Stream | TopKHeap, QuickSelect, CountMinSketch, SpaceSaving, MisraGries, StreamGenerator | stream:topk, stream:heavy-hitters, stream:all-unique, stream:drift | stream |
-| 07 | External Sorting | ExternalSort | ExternalSorter, ChunkReader, KWayMerge | sort:memory-limit, sort:fan-in, sort:patterns, sort:io | external-sort |
+| 07 | External Sorting | ExternalSort | ExternalSorter, ChunkReader, MergeEntry, DatasetGenerator, SortStats | sort:memory-limit, sort:fan-in, sort:patterns, sort:io | external-sort |
 
 Every row ends in a book chapter, tests, a table in `docs/BENCHMARKS.md`, and a
 decision entry when there was a non-trivial trade-off.
@@ -645,21 +645,59 @@ Count-Min and Space-Saving complete. No multi-size time fit is claimed.
 an estimator versus candidate summaries; detector recall versus frequency
 error; concept drift is not recency. Deferred to the book phase.
 
-### Phase 8 — Chapter 07: External Sorting
+### Phase 8 — Chapter 07: External Sorting — code and measurements complete
 
-**Code:** ExternalSorter (chunk → sort → spill → k-way merge through a heap),
-ChunkReader over generators, configurable chunk size and fan-in, comparator,
-stability, cleanup of temporary files.
+**Status (2026-10-23):** the implementation, tests, experiments, benchmark and
+child-process memory test are complete. The book excerpt is deferred to the
+book phase. There is no replacement-selection fast path, compression or
+parallel merge; those are out of scope for this chapter.
 
-**Experiments:** 100/500 MB of input under `memory_limit=128M` with chunks of
-8/32/128 MB; fan-in 8/32/128 and open-file cost; random, sorted, reversed and
-duplicate-heavy patterns and the number of passes; bytes read/written, MB/s
-and peak memory; checksum against an in-memory sort on a reduced set.
+**Code:** `ExternalSorter` reads through `ChunkReader`, sorts each byte-bounded
+chunk with the configured comparator, spills sorted runs with `tempnam()`, and
+merges at most `fanIn` runs through a `BinaryHeap`. `LineReader` streams input
+lines, `MergeEntry` carries the run number used for stable ties, `SortStats`
+records runs/passes/logical bytes/comparisons, and `DatasetGenerator` plus
+`DatasetCache` provide deterministic 76-byte random, sorted, reversed and
+duplicate-heavy inputs. Temporary runs are removed in a `finally` block. The
+final merge is counted as a pass even for one run, so the stats match the copy
+the code performs.
 
-**Benchmark suite:** external-sort — the same inputs, I/O and time.
+**Expected complexity:** with N records, chunk C, R initial runs and fan-in F,
+chunk sorting is O(N log C); each merge pass is O(N log F) comparisons and one
+read plus one write of N; the implementation performs
+`max(1, ceil(log_F R))` passes. Live memory is O(C + F). A larger chunk removes
+runs but raises the PHP array footprint; a larger fan-in removes passes but
+opens more files. The 128 MiB raw chunk measured 291.4 MiB PHP peak, so it does
+not fit the 128M case; the 500 MiB / 128M run uses a 32 MiB chunk.
+
+**Experiments:** `sort:memory-limit` (100 MiB, chunks 8/32/128 MiB, fan-in 8);
+`sort:fan-in` (100 MiB, 8 MiB chunk, fan-in 2/8/32/128); `sort:patterns`
+(10,000 records, random/sorted/reversed/duplicate, full-output checksum against
+stable in-memory `usort`); `sort:io` (100 MiB default, 500 MiB with
+`--input-mb=500 --chunk-mb=32 --fan-in=32`, including a direct
+`-d memory_limit=128M` run).
+
+**Benchmark suite:** `external-sort` — 8 MiB input, 1 MiB and 4 MiB chunks,
+fan-in 2/4/16, five repetitions.
+
+**Result:** 355 tests and 33,786 assertions pass; PHPStan level 8 reports no
+errors over 196 files; PHP-CS-Fixer reports no changes. On the 100 MiB / 1,379,705
+record input, chunks 8/32/128 MiB took 5.389/3.954/3.190 s, used 600/400/400 MiB
+of logical I/O and peaked at 29.6/118.3/291.4 MiB. With an 8 MiB chunk and 13
+initial runs, fan-in 2/8/32/128 produced 4/2/1/1 passes and 6.370/5.320/4.985/
+4.647 s. A 500 MiB / 6,898,526 record input with a 32 MiB chunk and fan-in 32
+finished in 27.201 s at 512M and 26.843 s at 128M; both peaked at 118.4 MiB and
+moved 2,000 MiB of logical I/O. The pattern checksums all matched; the 10,000-
+record runs took 79-96 ms externally versus 9-13 ms in memory. The external-sort
+benchmark medians were 435.965/221.379/421.688/336.893 ms for chunk-1m,
+chunk-4m, fan-in-2 and fan-in-16. The 8M child test sorted an 8 MiB input with a
+512 KiB chunk, while `file()` + `usort()` died at the same limit. No multi-size
+time fit is claimed.
 
 **Book:** the external-memory model; why k-way merge rather than two-way; the
-cost of an extra pass; why in-memory `sort()` is not a solution.
+cost of an extra pass; open-file limits; chunk size as a PHP-memory budget, not
+a nominal byte count; stability as chunk order plus run order; why in-memory
+`sort()` is not a solution. Deferred to the book phase.
 
 ---
 

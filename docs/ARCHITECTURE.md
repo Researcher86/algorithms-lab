@@ -134,6 +134,19 @@ not an algorithm.
   process with a lowered `memory_limit`.
 - Stream experiments are `stream:topk`, `stream:heavy-hitters`,
   `stream:all-unique` and `stream:drift`; the benchmark suite is `stream`.
+- Chapter 07 lives in `src/ExternalSort/`. `ExternalSorter` reads records into
+  byte-bounded chunks, sorts each chunk with the configured comparator, spills
+  sorted runs and merges at most `fanIn` runs at a time through a binary heap.
+  `ChunkReader` works over any iterable, `LineReader` streams newline records,
+  `MergeEntry` carries the run number used for stable ties, and `SortStats`
+  records runs, passes, logical bytes and comparisons. `DatasetGenerator` and
+  `DatasetCache` provide deterministic 76-byte random, sorted, reversed and
+  duplicate-heavy inputs. Temporary runs are created with `tempnam()` and
+  removed in a `finally` block.
+- External-sort experiments are `sort:memory-limit`, `sort:fan-in`,
+  `sort:patterns` and `sort:io`; the benchmark suite is `external-sort`. The
+  `tests/ExternalSort/BoundedMemoryTest.php` child runs an 8 MiB input under
+  `memory_limit=8M`; the exact in-memory alternative is checked to fail there.
 - `src/Foundation/IndexedMinHeap.php` is the decrease-key heap used by
   `DijkstraDecreaseKey`; `UnionFind` accepts path-compression and union-by-rank
   flags plus an optional `Counters`, which is what makes the DSU experiment a

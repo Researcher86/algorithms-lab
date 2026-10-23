@@ -567,3 +567,113 @@ was made. New decisions are appended with a date.
 - A recency-sensitive system needs a window, decay, or a time-aware variant.
   Those are explicitly out of scope for Chapter 06, along with sliding-window
   max/min and mergeable summaries.
+
+## 2026-10-23 — External sorting is chunk-sort-spill-merge
+
+- `ExternalSorter` reads an iterable through `ChunkReader`, sorts each chunk,
+  writes a sorted run with `tempnam()` and merges at most `fanIn` runs through
+  a `BinaryHeap`. It does not attempt a two-way merge chain, and it does not
+  materialize the whole input.
+- `fanIn` must be at least 2. A one-way "merge" is a copy and would make the
+  pass loop unable to reduce the run count. The multi-pass loop groups runs in
+  input order, so stability survives group merges.
+- Each run is written through a one-megabyte buffer and read with `LineReader`;
+  the first implementation wrote one line per `fwrite` call and turned a
+  one-megabyte sort into a disk-syscall benchmark. Buffering is an implementation
+  detail, not a change to the external-memory model.
+- `SortStats` counts the input, every spill write/read and the output as logical
+  record bytes. It reports initial runs, merge passes (including the final copy),
+  comparisons through the comparator, chunk bytes and fan-in. It does not claim
+  those bytes are physical I/O: the OS page cache and Docker filesystem sit in
+  between.
+- Temporary runs are registered when created and removed in a `finally` block,
+  including on exceptions. The user's output file is not part of the temporary
+  cleanup. Intermediate runs are unlinked as soon as their group has been
+  merged, which keeps peak disk use closer to one pass.
+- The final merge always runs, even when the initial input produced one run.
+  A rename would be cheaper, but it would make the reported pass and I/O counts
+  depend on a special case and would hide the copy the code performs. The stats
+  describe what this implementation actually does.
+
+## 2026-10-23 — Stability is chunk order plus run order
+
+- Records are strings; the comparator receives whole records. A caller that
+  wants to sort by a field can return a comparator over that field, as the
+  dataset experiments do for the leading key.
+- PHP's `usort` is stable as of PHP 8.0, so equal records within a chunk retain
+  their input order. During merge, the heap orders by the user comparator and
+  then by run number; equal records from an earlier run win. The run number is
+  the entire stability mechanism, so no per-record sequence is stored or
+  serialized.
+- The equal-key test forces multiple chunks and multiple merge levels. The
+  duplicate-heavy pattern checks all 10,000 output records against a stable
+  in-memory `usort`, not a sample.
+- A comparator that is inconsistent or non-transitive can still break both
+  algorithms; stability is only as well-defined as the comparator. The sorter
+  does not validate that contract.
+
+## 2026-10-23 — Chunk size is a memory budget, not a byte count
+
+- `chunkBytes` bounds the sum of record lengths plus newline bytes in a chunk,
+  but PHP's array and string overhead is larger. On the 100 MiB input, an 8 MiB
+  chunk peaked at 29.6 MiB, 32 MiB at 118.3 MiB and 128 MiB at 291.4 MiB.
+- The 128 MiB chunk is therefore not usable under a 128M PHP limit even though
+  its nominal input bytes fit. The 500 MiB / 128M run uses a 32 MiB chunk and
+  peaks at 118.4 MiB, leaving only about 10 MiB of headroom.
+- The experiments report PHP allocator peak, not RSS. A production deployment
+  must leave room for the request, autoloader, output buffers and the runtime,
+  not just the measured sort.
+- A larger chunk reduces initial runs and merge passes, but it does not always
+  reduce wall time: the 8 MiB / two-pass run took 5.389 s, the 32 MiB / one-pass
+  run 3.954 s and the 128 MiB / one-pass run 3.190 s on the same 100 MiB file.
+  The right choice is the largest chunk that fits the limit with margin, not the
+  largest nominal size.
+
+## 2026-10-23 — Fan-in trades passes for open files
+
+- With 13 initial runs and fan-in 2, the sorter needs 4 passes and 1,000 MiB of
+  logical I/O; fan-in 8 needs 2 passes and 600 MiB; fan-in 32 needs 1 pass and
+  400 MiB. Wall time fell from 6.370 s to 5.320 s to 4.985 s.
+- Fan-in 32 and 128 both open the 13 initial runs and both make one pass; the
+  128-way setting cannot help when there are only 13 runs. Open-file limits and
+  memory for run buffers are the real constraints.
+- The report prints logical MiB/s, which can rise with extra passes because the
+  numerator grows. Wall time and logical I/O must be read together; a larger
+  throughput ratio is not automatically a faster sort.
+- This implementation uses one heap entry per active run and one `LineReader`
+  generator per run. A production implementation might use larger read buffers,
+  asynchronous I/O, or a replacement-selection run generator; those are out of
+  scope for this chapter.
+
+## 2026-10-23 — Deterministic datasets and a reduced reference
+
+- `DatasetGenerator` writes fixed 76-byte records (10-digit key, space, 64-byte
+  payload, newline). `DatasetCache` names a file by pattern, record count and a
+  hash of the seed, and regenerates it if the size is wrong. Files live under
+  `var/datasets` and are gitignored; experiments replay the same file across
+  chunk and fan-in runs.
+- The patterns are `random`, `sorted`, `reversed` and `duplicate`. The sorter
+  has no pre-sorted detection, so the pattern affects the data distribution but
+  not the run/pass path. That is deliberate: the chapter is about external
+  sorting, not a run-optimization contest.
+- The correctness check uses 10,000 records, not the 100/500 MiB workloads. It
+  builds the expected output with stable in-memory `usort`, hashes the complete
+  external output with `xxh128` and asserts the counts match. The large runs
+  are for performance and memory, not for an in-memory reference.
+- The 100/500 MiB targets are generated locally on demand. They are not
+  committed, and they are not part of the CI test suite; CI runs the small unit
+  tests and the 8 MiB / 8M child test.
+
+## 2026-10-23 — The memory-limit test is a child process
+
+- `tests/ExternalSort/BoundedMemoryTest.php` writes an 8 MiB input, runs a
+  child with `-d memory_limit=8M`, sorts with a 512 KiB chunk and fan-in 4, and
+  checks the output size. It also runs `file()` + `usort()` on the same input
+  in a child and expects a fatal allowed-memory error.
+- This makes the bounded-memory claim executable without lowering the PHPUnit
+  process limit. A fatal allocator error cannot be caught reliably as an
+  exception, and lowering the parent limit would risk killing the suite.
+- The exact 8M threshold is not a universal claim about PHP builds or
+  extensions. It is a regression guard with a wide margin around the measured
+  29.6 MiB peak of an 8 MiB chunk; the test's chunk is much smaller than the
+  experiment's.
