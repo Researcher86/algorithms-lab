@@ -478,7 +478,143 @@ are rare, so the experiments do not claim a collision distribution. Memory is
 reported only as the ring size in tokens, not as bytes; the chapter measures
 lookup and remapping behavior, not allocator overhead.
 
+## Chapter 06 — Top-K and stream processing
+
+### Expected complexity
+
+Let `D` be the number of distinct keys seen and `K` the requested result size.
+
+| Structure or operation | Time | Extra memory |
+|---|---|---|
+| `TopKHeap::observe` | expected O(1) map lookup plus O(log K) heap repair | O(D + K) |
+| `TopKHeap::top` | O(K log K) to sort the K entries | O(K) for the result |
+| `QuickSelect::top` | average O(D), worst-case O(D²); median-of-three pivot | O(D) for the copied entries and result |
+| `CountMinSketch::add` / `estimate` | O(d) hashes and counter reads | O(w × d) counters |
+| `SpaceSaving::observe` | O(1) when tracked; O(k) minimum scan when a new key replaces the minimum | O(k) |
+| `MisraGries::observe` | O(1) when tracked; O(k) cancellation when full and new | O(k) |
+| `SpaceSaving::top` / `MisraGries::top` | O(k log k) | O(k) |
+| `StreamGenerator` in these experiments | O(n) to materialize the list | O(n) |
+
+The exact heap does not avoid the count map. A stream with `D` distinct keys
+needs a count for every key that can still enter the top K; otherwise a later
+occurrence cannot be ranked correctly. That is the chapter's central
+asymptotic point: exact top-K is O(D) memory even though the heap is O(K).
+Quickselect is an alternative only after that map exists; it trades the
+streaming pass for a batch selection and still copies O(D) entries.
+
+Count-Min's standard analysis uses width `w` and depth `d`: the estimate is at
+least the true count, and the collision error is roughly `N/w` with a failure
+probability controlled by `d`. This implementation fixes `w` and `d` in each
+experiment and does not calibrate them to a requested ε/δ pair, so the measured
+errors are evidence, not a proof of the bound. The sketch cannot enumerate its
+keys; candidate generation is a separate structure. Space-Saving keeps at most
+`k` keys and replaces the current minimum; its usual guarantee concerns keys
+with frequency above about `N/k`. Misra-Gries keeps at most `k` counters,
+decrements every counter when full and a new key arrives, and never
+overestimates; the arriving key is not inserted on that cancellation step.
+
+### Measured evidence
+
+`stream:topk` used 100,000 Zipf items, 10,000 possible keys (7,348 observed),
+alpha 1.1, and seed `book`:
+
+| K | heap update | heap memory | quickselect | quick memory | exact recall |
+|---:|---:|---:|---:|---:|---:|
+| 10 | 22.910 ms | 344.0 KiB | 2.781 ms | 4.0 KiB | 100% |
+| 100 | 23.259 ms | 338.2 KiB | 2.978 ms | 34.8 KiB | 100% |
+| 1,000 | 31.691 ms | 506.0 KiB | 3.441 ms | 347.6 KiB | 100% |
+
+The heap's memory is dominated by the full count map at small K; the K=1,000
+row adds about 170 KiB of heap entries. Quickselect does not pay for the map
+because the experiment builds it separately; its selection is faster, but it
+is a batch operation. The K=10/K=100 heap numbers differ by a few KiB because
+the PHP allocator, not because the asymptotic memory changed.
+
+The all-unique experiment makes the lower bound visible. With 100,000 unique
+keys and K=100:
+
+| structure | logical size | PHP memory | bytes per unit |
+|---|---:|---:|---:|
+| exact `TopKHeap` | 100,000 | 5,166.7 KiB | 52.91 B/item |
+| `CountMinSketch(2048, 4)` | 8,192 cells | 169.2 KiB | 21.15 B/cell |
+| `SpaceSaving(100)` | 100 counters | 18.8 KiB | 192.16 B/slot |
+| `MisraGries(100)` | 10 surviving counters | 17.0 KiB | 173.60 B/slot |
+
+The exact map grows with `D`; the sketches stay near their configured size.
+The bytes-per-unit columns are not directly interchangeable: a summary entry
+owns a key string and a counter, while a Count-Min cell is one integer.
+
+The heavy-hitter experiment used the same Zipf stream and compared detector
+recall at capacity K. At K=10/100/1,000, Space-Saving recalled
+50.0%/48.0%/55.9% of the true top K and Misra-Gries recalled
+30.0%/46.0%/56.4%. The true K=10 threshold was 1,246 occurrences, only 1.25%
+of the stream, and the K=1,000 threshold was 8; these are not the safe
+above-`N/K` regime. The table is a useful warning, not a claim that a
+capacity-K summary always finds the top K.
+
+On the same stream, with an equal counter budget of 4K cells/entries, Count-Min
+mean error on the true top-K keys fell from 5,554.60 at K=10 (width 10) to
+353.77 at K=100 and 14.52 at K=1,000. Space-Saving's error fell from 252.70 to
+3.64 to 0.018; Misra-Gries never overestimated and had errors 1,707.50, 112.18
+and 3.98. The counter budget is equal, but the allocator cost is not: the
+all-unique table shows why a Count-Min cell and a Space-Saving entry are
+different objects.
+
+`stream:drift` switches from a 20-key phase-a hot set to a disjoint 20-key
+phase-b set halfway through 100,000 items, with capacity 30. Both summaries
+retained ten stale phase-a keys while recalling all 20 current phase-b keys
+(100%); Space-Saving's largest counter was 3,820, Misra-Gries's was 1,194.
+Capacity alone is not recency. The exact top-K heap would also retain old keys
+with high counts if they remained in its heap.
+
+`stream:all-unique` and the child-process test in
+`tests/Stream/BoundedMemoryTest.php` are the bounded-memory evidence. The child
+runs with `memory_limit=8M` and 150,000 unique keys: the exact `TopKHeap` dies
+with an allowed-memory error, while `CountMinSketch(1024, 4)` and
+`SpaceSaving(100)` finish. The test lowers the limit only in the child, so the
+PHPUnit process and its 512M container limit are not affected.
+
+### Time
+
+The `stream` benchmark uses 50,000 Zipf items over 5,000 keys, with five
+repetitions. The median rates were: persistent exact heap updates 3,628,457
+items/sec; full 10,000-item heap builds 342 batches/sec (about 3.4M items/sec);
+QuickSelect top-1,000 371 selections/sec; Count-Min updates 948,145/sec;
+Space-Saving updates 806,782/sec; Misra-Gries updates 8,409,338/sec. The
+benchmark prepares its structures before timing, so those numbers are
+throughput, not a memory measurement. Misra-Gries is fastest here because its
+set can shrink after cancellation and it scans only on a full-set miss; that is
+a workload observation, not a universal ordering.
+
+### What is not claimed
+
+The chapter does not build a sliding window or exponential decay, a mergeable
+sketch, a parallel stream, or a formal ε/δ calibration. It does not claim that
+Count-Min can find top-K keys by itself, that a capacity-K summary always
+recalls the true top K, or that equal counter counts mean equal bytes. The
+stream generators materialize lists so the same deterministic input can be
+replayed; a production pipeline would use a generator and would not keep the
+full frequency map next to a bounded summary. No multi-size time fit is
+claimed: the benchmark is one fixed shape, and the complexity table is theory
+plus targeted counters.
+
 ## Status
+
+Phase 1 defines the instrumentation and the fit helper. Chapter 01 publishes
+measured counters and memory; its time suite has one size, so it does not claim
+a time fit. Chapter 02 adds a counter-backed O(1) pointer claim and measured
+hit-ratio behavior, but also has one benchmark size. Chapter 03 adds graph
+representation memory, exact traversal counters, heap-pop evidence for
+Dijkstra and union-find read counts, still with one size per question. Chapter
+04 adds height and node-read evidence at two sizes, a linked-leaf range
+counter, and a page model that is kept separate from wall-clock time. Chapter
+05 adds remapping fractions against the `1/(n + 1)` ideal, a virtual-node
+balance sweep, replica-failure checks, and a fixed-size lookup/add-remove
+benchmark. Chapter 06 adds exact-versus-bounded memory evidence, a
+child-process memory-limit test, detector recall and estimator error at three
+K values, and one fixed-size stream benchmark. Later chapters add multi-size
+fits where the question requires one.
+
 
 Phase 1 defines the instrumentation and the fit helper. Chapter 01 publishes
 measured counters and memory; its time suite has one size, so it does not claim

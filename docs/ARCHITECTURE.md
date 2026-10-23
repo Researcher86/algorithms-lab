@@ -125,6 +125,15 @@ not an algorithm.
   token collisions by probing the next free position.
 - Ring experiments are `ring:remap`, `ring:balance` and `ring:replicas`; the
   benchmark suite is `ring`.
+- Chapter 06 lives in `src/Stream/`. `TopKHeap` is an indexed min-heap over K
+  entries plus an exact count map for every distinct key; `QuickSelect` is the
+  exact batch alternative; `CountMinSketch` is a fixed-size estimator that
+  cannot enumerate its keys; `SpaceSaving` and `MisraGries` are bounded
+  candidate summaries. `StreamGenerator` produces reproducible uniform, Zipf,
+  all-unique and drift streams. The bounded-memory test runs in a child PHP
+  process with a lowered `memory_limit`.
+- Stream experiments are `stream:topk`, `stream:heavy-hitters`,
+  `stream:all-unique` and `stream:drift`; the benchmark suite is `stream`.
 - `src/Foundation/IndexedMinHeap.php` is the decrease-key heap used by
   `DijkstraDecreaseKey`; `UnionFind` accepts path-compression and union-by-rank
   flags plus an optional `Counters`, which is what makes the DSU experiment a

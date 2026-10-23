@@ -475,3 +475,95 @@ was made. New decisions are appended with a date.
 - A finite sample and an imperfect ring produce small deviations (9.61% and
   10.13% around 9.09% in the recorded run). The chapter does not fit a curve to
   two node counts or turn a single run into a universal constant.
+
+## 2026-10-23 — Exact top-K keeps the whole count map
+
+- `TopKHeap` keeps an indexed min-heap of K entries **and** a count for every
+  distinct key. The heap bounds the result, not the state needed to maintain an
+  exact answer: a key that is currently outside the top K can become a winner
+  after later increments, so its count cannot be discarded.
+- The heap is indexed by key (`positions`), which makes an existing key's count
+  repair O(log K). A lazy heap with duplicate entries would grow with the
+  stream and would make the memory claim false.
+- Ties are ordered by count descending, then key lexicographically ascending.
+  The heap root is the worst entry under that order, so a new equal-count key
+  with a larger id does not displace an existing one. Tests compare randomized
+  streams with a full sort.
+- `TopKHeap::counts()` exposes the full map for the experiments and for
+  `QuickSelect`; it is deliberately not a bounded-memory API.
+- `QuickSelect` is the exact batch alternative: median-of-three pivot, average
+  O(n), worst O(n²), and a full O(n) entry copy. It is not used as a streaming
+  algorithm. The benchmark separates its selection time from the cost of
+  building the map.
+
+## 2026-10-23 — Count-Min is an estimator, not a detector
+
+- `CountMinSketch` uses `d` rows of `w` counters and hashes `row:key` with the
+  shared xxh128 helper. Every update increments one counter per row; an
+  estimate is the minimum of the row values. Collisions can overestimate, never
+  underestimate.
+- The sketch has no key index. It cannot answer "which keys are the top K?" by
+  itself. The experiment reports its frequency error on the true top-K keys and
+  states that candidate generation is a separate problem. Combining Count-Min
+  with a candidate set would be a legitimate extension, but it would change the
+  memory comparison and is not hidden behind a misleading "top-K sketch" name.
+- The width and depth are fixed by each experiment. There is no automatic
+  `w = ceil(e/epsilon)` / `d = ceil(ln(1/delta))` calibration and no formal
+  ε/δ claim; the measured error at widths 10/100/1,000 is the evidence.
+- The estimator table uses an equal **counter budget** of 4K cells/entries.
+  That is not equal allocator memory: a Count-Min cell is an integer, while a
+  Space-Saving entry owns a key string and a counter. The all-unique experiment
+  reports the actual PHP-memory difference.
+
+## 2026-10-23 — Two different bounded summaries
+
+- `SpaceSaving(k)` keeps at most k key/count entries. A tracked key increments;
+  a new key enters while there is room; when full, it replaces the current
+  minimum and inherits `minimum + 1`. The estimate is therefore an
+  overestimate, and a key evicted early can fail to return even if it is
+  genuinely popular. The minimum scan is O(k); this implementation favors
+  clarity over a second heap.
+- `MisraGries(k)` keeps at most k counters. A tracked key increments; a new key
+  enters while there is room; when full, every counter is decremented by one,
+  zeros are removed, and the arriving key is **not** inserted on that step.
+  Counters are lower bounds on the true frequencies. This is the textbook
+  cancellation rule; an earlier draft inserted the arriving key and could
+  exceed the capacity, which the tests now reject.
+- The two algorithms are not interchangeable. Space-Saving overestimates and
+  tends to preserve old heavy keys; Misra-Gries underestimates and can shrink
+  its set after cancellation. The heavy-hitter and drift experiments report
+  both rather than declaring one universal winner.
+- Both `top(k)` methods sort at most k entries, so they are O(k log k). The
+  update path is the bounded-memory path that matters.
+
+## 2026-10-23 — Materialized streams and a child-process memory test
+
+- `StreamGenerator` returns lists, not PHP generators. The experiments replay
+  the same deterministic input through several algorithms, so materializing it
+  once is simpler and keeps the comparison honest; the generator's O(n) memory
+  is stated and is not counted as part of a summary's footprint.
+- The normal container limit is 512M, which is too large to demonstrate that an
+  exact count map is unbounded. `tests/Stream/BoundedMemoryTest.php` writes a
+  temporary child script, runs it with `-d memory_limit=8M`, and sends 150,000
+  unique keys. The exact `TopKHeap` dies with an allowed-memory error;
+  `CountMinSketch(1024, 4)` and `SpaceSaving(100)` complete.
+- The child process is deliberate. A PHP fatal memory error is not a catchable
+  exception, and lowering the limit in the PHPUnit process would risk killing
+  the suite instead of testing the claim.
+- The benchmark suite prepares its structures before timing and rotates through
+  a fixed stream. Its raw memory columns are benchmark-loop deltas; structure
+  memory comes from `stream:all-unique`, where the measurement starts before
+  the structure is allocated.
+
+## 2026-10-23 — Drift is not recency
+
+- `stream:drift` switches the hot set halfway through the stream. With capacity
+  30 and a 20-key hot set per phase, both summaries recall all 20 current keys
+  but retain 10 stale phase-a keys. That is the observed result, not a claim
+  that one algorithm forgets.
+- Space-Saving retains old keys until they become the minimum; Misra-Gries
+  only cancels when its set is full, and a large old counter can survive many
+  cancellations. Neither is a sliding window or an exponential-decay summary.
+- A recency-sensitive system needs a window, decay, or a time-aware variant.
+  Those are explicitly out of scope for Chapter 06, along with sliding-window
+  max/min and mergeable summaries.

@@ -70,6 +70,11 @@ make experiment ARGS="ring:remap --seed=book"
 make experiment ARGS="ring:balance"
 make experiment ARGS="ring:replicas"
 
+make experiment ARGS="stream:topk --seed=book"
+make experiment ARGS="stream:heavy-hitters --seed=book"
+make experiment ARGS="stream:all-unique"
+make experiment ARGS="stream:drift --seed=book"
+
 make benchmark ARGS="demo"
 make benchmark ARGS="hash-table --repetitions=5"
 make benchmark ARGS="bloom --repetitions=5"
@@ -77,13 +82,14 @@ make benchmark ARGS="cache --repetitions=5"
 make benchmark ARGS="graph --repetitions=5"
 make benchmark ARGS="tree --repetitions=5"
 make benchmark ARGS="ring --repetitions=5"
+make benchmark ARGS="stream --repetitions=5"
 make benchmark ARGS="hash-table --format=json --output=var/results/hash-table.json"
 ```
 
 Every suite records the environment block. Text is for reading, JSON for
 keeping, CSV for comparing runs in a spreadsheet. The `demo` suite is the
-smoke test; `hash-table`, `bloom`, `cache`, `graph`, `tree` and `ring` are
-the chapter suites.
+smoke test; `hash-table`, `bloom`, `cache`, `graph`, `tree`, `ring` and
+`stream` are the chapter suites.
 
 ## Container numbers
 
@@ -802,3 +808,187 @@ of consistent hashing (a balanced tree of tokens would change the constant).
   footnote.
 - Replicas are the next `R` distinct clockwise owners. Node failure moves the
   affected keys to the next owner, and keys on other nodes stay put.
+
+### Chapter 06 — Top-K and Stream Processing
+
+These are development numbers, not the book's reference measurements. They
+were taken in Docker on macOS at commit `cb5d38e`; the harness printed:
+
+```text
+PHP 8.5.11 on Linux 7.0.14-linuxkit, aarch64 x 12, memory_limit 512M, cgroup unlimited
+OPcache off, JIT off, Xdebug off, allocator Zend MM
+```
+
+The Zipf experiments use 100,000 stream items over a 10,000-key alphabet with
+alpha 1.1 and seed `book`; the realized stream contained 7,348 distinct keys.
+The all-unique experiment uses a different stream and is marked as such.
+
+#### Exact top-K: heap versus quickselect
+
+`make experiment ARGS="stream:topk --seed=book"` feeds the same stream to an
+exact `TopKHeap` and then runs `QuickSelect` over the already-built full
+frequency map.
+
+| K | distinct | heap update | heap memory | quickselect | quick memory | recall |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 7,348 | 22.910 ms | 344.0 KiB | 2.781 ms | 4.0 KiB | 100.0% |
+| 100 | 7,348 | 23.259 ms | 338.2 KiB | 2.978 ms | 34.8 KiB | 100.0% |
+| 1,000 | 7,348 | 31.691 ms | 506.0 KiB | 3.441 ms | 347.6 KiB | 100.0% |
+
+Both methods are exact, so the recall column is expected to be 1.0. The heap
+memory is the important column: it includes the count for every distinct key,
+not just the K entries in the heap. The K=10 and K=100 readings are within
+allocator noise of each other because the full map dominates; K=1,000 adds
+roughly 170 KiB of heap entries. Quickselect is faster here because it is a
+single batch selection over a map that already exists; it does not include the
+cost or memory of building that map. The heap is the streaming option; the
+selection is the batch option.
+
+#### Heavy hitters: detection and estimation
+
+`make experiment ARGS="stream:heavy-hitters --seed=book"` compares two
+detectors at capacity K and then compares three estimators on the true top-K
+keys. A detector must decide which keys to keep; an estimator only scores keys
+it is given.
+
+Detectors at capacity K:
+
+| K | summary | entries | recall | precision | mean rank error |
+|---:|---|---:|---:|---:|---:|
+| 10 | space-saving | 10 | 50.0% | 50.0% | 2.40 |
+| 10 | misra-gries | 8 | 30.0% | 37.5% | 3.10 |
+| 100 | space-saving | 100 | 48.0% | 48.0% | 21.73 |
+| 100 | misra-gries | 87 | 46.0% | 52.9% | 22.79 |
+| 1,000 | space-saving | 1,000 | 55.9% | 55.9% | 198.01 |
+| 1,000 | misra-gries | 989 | 56.4% | 57.0% | 200.77 |
+
+The true top-K threshold is 1,246 occurrences at K=10, 96 at K=100 and 8 at
+K=1,000. A frequency-summary guarantee is usually stated for keys above about
+N/K; at K=10 the threshold is only 1.25% of N, and the measured recall is
+50%. The table is not a contradiction: a summary of capacity K cannot preserve
+every candidate when the distribution has a long tail and many near-ties.
+Space-Saving keeps K counters and overestimates survivors; Misra-Gries can use
+fewer counters and underestimates them, which is why its precision can exceed
+recall.
+
+Frequency estimators on the true top-K keys, with an equal counter budget of
+4K cells or entries:
+
+| K | estimator | units | mean error | max overestimate |
+|---:|---|---:|---:|---:|
+| 10 | count-min (w=10, d=4) | 40 cells | 5,554.60 | 7,574 |
+| 10 | space-saving | 40 entries | 252.70 | 683 |
+| 10 | misra-gries | 15 entries | 1,707.50 | 0 |
+| 100 | count-min (w=100, d=4) | 400 cells | 353.77 | 920 |
+| 100 | space-saving | 400 entries | 3.64 | 23 |
+| 100 | misra-gries | 291 entries | 112.18 | 0 |
+| 1,000 | count-min (w=1,000, d=4) | 4,000 cells | 14.52 | 72 |
+| 1,000 | space-saving | 4,000 entries | 0.018 | 2 |
+| 1,000 | misra-gries | 2,906 entries | 3.98 | 0 |
+
+"Equal counter budget" is not equal allocator bytes: a Count-Min cell is an
+integer in a row, while a summary entry owns a key string and a counter. The
+all-unique table below shows that difference. Count-Min's mean error falls as
+its width grows (5,554.60 at w=10, 353.77 at w=100, 14.52 at w=1,000), which is
+the collision behavior the sketch trades memory for. Space-Saving is a much
+better estimator on this skewed stream at the same counter count; Misra-Gries
+is conservative and never overestimates. Count-Min cannot enumerate its own
+keys, so the estimator table deliberately gives it the true keys. It is not a
+detector and should not be read as one.
+
+#### All-unique stream: the memory lesson
+
+`make experiment ARGS="stream:all-unique"` sends 100,000 distinct keys, each
+once, through four structures with K=100 and Count-Min width 2,048/depth 4.
+
+| structure | logical size | PHP memory | bytes per unit | sample |
+|---|---:|---:|---:|---:|
+| TopKHeap (exact) | 100,000 | 5,166.7 KiB | 52.91 B/item | 1 |
+| CountMinSketch | 8,192 | 169.2 KiB | 21.15 B/cell | 36 |
+| SpaceSaving | 100 | 18.8 KiB | 192.16 B/slot | 1,000 |
+| MisraGries | 10 | 17.0 KiB | 173.60 B/slot | 1 |
+
+The exact heap grows with the number of distinct keys even though K is only
+100; that is why "top-K needs O(K) memory" is false for an arbitrary stream.
+The bounded summaries stay near their configured size. The `sample` column is
+not a ranking: it is the exact top count, the sketch's estimate for the first
+item, or the summary's largest counter. Space-Saving's 1,000 is an inherited
+overestimate; Misra-Gries's 1 is an underestimate. With all frequencies equal,
+there is no winner to find.
+
+`tests/Stream/BoundedMemoryTest.php` makes the point executable. It starts a
+child process with `-d memory_limit=8M` and sends 150,000 unique keys:
+
+- the exact `TopKHeap` dies with `Allowed memory size ... exhausted`;
+- `CountMinSketch(1024, 4)` completes;
+- `SpaceSaving(100)` completes.
+
+The child-process boundary is deliberate: a fatal memory error cannot be
+caught reliably in the PHPUnit process, and the container's normal 512M limit is
+too generous to test a bounded-memory claim.
+
+#### Concept drift
+
+`make experiment ARGS="stream:drift --seed=book"` sends 100,000 items from a
+200-key alphabet. The first half repeats a 20-key hot set from `phase-a`; the
+second half repeats a disjoint 20-key hot set from `phase-b`. Both summaries
+have capacity 30.
+
+| summary | entries | current-hot recall | stale phase-a keys in top | top count |
+|---|---:|---:|---:|---:|
+| space-saving | 30 | 100.0% | 10 | 3,820 |
+| misra-gries | 30 | 100.0% | 10 | 1,194 |
+
+The current-hot recall is 100% because all 20 phase-b keys fit in the 30 slots.
+The interesting number is the ten stale phase-a keys: both summaries retain
+old heavy keys, so a bounded summary is not a sliding window. Space-Saving
+replaces the current minimum; Misra-Gries decrements every counter when its
+set is full, but a large old counter can survive. A recency-sensitive pipeline
+needs a window or a decay factor, which this chapter does not build.
+
+#### Time
+
+`make benchmark ARGS="stream --repetitions=5"` uses a 50,000-item Zipf stream
+over 5,000 keys. The structures are prepared before each benchmark, so the
+memory columns in the raw report are benchmark-loop deltas, not the size of
+the data structures; the experiments above are the memory source.
+
+| benchmark | iterations | median | ops/sec |
+|---|---:|---:|---:|
+| stream-topk-observe | 100,000 | 27.560 ms | 3,628,457 |
+| stream-topk-batch | 20 | 58.371 ms | 342 |
+| stream-quickselect-1000 | 100 | 268.911 ms | 371 |
+| stream-count-min | 100,000 | 105.469 ms | 948,145 |
+| stream-space-saving | 100,000 | 123.949 ms | 806,782 |
+| stream-misra-gries | 100,000 | 11.892 ms | 8,409,338 |
+
+`stream-topk-batch` runs a complete 10,000-item heap build per operation, so
+342 operations/sec is about 3.4 million items/sec. `stream-topk-observe`
+updates a persistent heap and rotates through the stream; its 3.6 million
+items/sec is a per-item update, not a full pass. Quickselect performs 1,000-way
+selection over the 5,000-key map.
+
+Count-Min performs four hashes per update. Space-Saving scans the current
+minimum when a new key arrives after capacity is full. Misra-Gries only scans
+when its set is full and the arriving key is new; the measured set can shrink
+after cancellation, which is why its throughput is higher. That is a property
+of this workload, not a universal ranking. A production stream would not
+materialize the stream or the full frequency map; these experiments do, because
+they replay one deterministic dataset through several algorithms.
+
+#### What the chapter concludes
+
+- Exact top-K is a memory question before it is a heap question: the count map
+  is O(distinct), and 100,000 unique items cost 5,166.7 KiB despite K=100.
+- The bounded summaries cost tens of KiB and keep working when the exact map
+  would exhaust a lowered memory limit.
+- Count-Min is an estimator, not a candidate finder. Space-Saving and
+  Misra-Gries produce candidate sets; their recall is workload-dependent and
+  not guaranteed for keys below the N/K threshold.
+- Equal counter counts are not equal bytes. The estimator comparison must be
+  read with the all-unique memory table, not as a claim that 40 counters and
+  40 cells have identical allocator cost.
+- Concept drift exposes the difference between bounded and recent: capacity
+  alone does not forget old heavy keys.
+- No multi-size time fit is claimed. The tables describe one Docker run and one
+  fixed stream shape.

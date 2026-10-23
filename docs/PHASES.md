@@ -226,7 +226,7 @@ across moves: `hash:load-factor`, `bloom:fpr`, `cache:zipf`, `graph:dijkstra`,
 | 03 | Graph Algorithms | Graph | AdjacencyList, AdjacencyMatrix, EdgeList, CsrGraph, Bfs, Dfs, TopologicalSort, Dijkstra, DijkstraDecreaseKey, BellmanFord, Kruskal, Prim, UnionFind | graph:representations, graph:traversal, graph:dijkstra, graph:topological-sort, graph:dsu | graph |
 | 04 | B-Tree and Search | Tree | BTree, BPlusTree, PageSimulator, SortedArrayIndex, PhpArrayIndex, KeyGenerator | tree:height, tree:insert-patterns, tree:range, tree:page-reads, tree:memory | tree |
 | 05 | Consistent Hashing | ConsistentHash | NodeHash, HashRing, RendezvousHash, ModuloHash | ring:remap, ring:balance, ring:replicas | ring |
-| 06 | Top-K and Stream Processing | Stream | TopKHeap, QuickSelect, CountMinSketch, SpaceSaving | stream:top-k, stream:sketch, stream:unique, stream:drift | stream |
+| 06 | Top-K and Stream Processing | Stream | TopKHeap, QuickSelect, CountMinSketch, SpaceSaving, MisraGries, StreamGenerator | stream:topk, stream:heavy-hitters, stream:all-unique, stream:drift | stream |
 | 07 | External Sorting | ExternalSort | ExternalSorter, ChunkReader, KWayMerge | sort:memory-limit, sort:fan-in, sort:patterns, sort:io | external-sort |
 
 Every row ends in a book chapter, tests, a table in `docs/BENCHMARKS.md`, and a
@@ -595,21 +595,55 @@ rendezvous 196,098 in the fixed benchmark. No multi-size time fit is claimed.
 rendezvous; what "uniform" actually means; fallback order is not replication.
 Deferred to the book phase.
 
-### Phase 7 — Chapter 06: Top-K and Stream Processing
+### Phase 7 — Chapter 06: Top-K and Stream Processing — code and measurements complete
 
-**Code:** TopKHeap O(n log k), QuickSelect O(n) average, CountMinSketch,
-SpaceSaving/Misra-Gries; sliding window as stretch; uniform, Zipf, all-unique
-and drift generators.
+**Status (2026-10-23):** the implementation, tests, experiments, benchmark and
+child-process memory test are complete. The book excerpt is deferred to Phase
+11, where every chapter is written against a tagged release. A sliding window,
+exponential decay and mergeable summaries were not built.
 
-**Experiments:** recall/precision and rank error at K = 10/100/1000; Count-Min
-versus Space-Saving at equal memory; an all-unique stream where exact counting
-exceeds memory but a sketch does not; popularity drift in the middle of a
-stream.
+**Code:** `src/Stream/TopKHeap.php` is an exact indexed heap of K entries plus
+a count map for every distinct key; `QuickSelect` is the exact batch
+alternative; `CountMinSketch` is a fixed-size estimator with no key
+enumeration; `SpaceSaving` and `MisraGries` are bounded candidate summaries;
+`StreamGenerator` produces reproducible uniform, Zipf, all-unique and drift
+streams.
 
-**Benchmark suite:** stream — exact versus sketch, throughput, memory.
+**Expected complexity:** exact top-K needs O(D + K) memory for D distinct keys,
+not O(K); heap updates are expected O(1) map work plus O(log K) repair.
+QuickSelect is average O(D), worst O(D²), and needs the full map. Count-Min is
+O(d) per update and O(w × d) memory. Space-Saving and Misra-Gries are O(k)
+memory, with an O(k) scan on the slow path. Adding one item is not a proof of
+the asymptotic constants; the tables are one fixed workload.
 
-**Book:** bounded memory; ε/δ; why exact top-K on a stream is a memory
-question, not a heap of size K; concept drift.
+**Experiments:** `stream:topk` compares the exact heap with fixed-size
+selection; `stream:heavy-hitters` reports detector recall/precision/rank error
+and estimator error at equal counter budgets; `stream:all-unique` shows the
+exact map growing while summaries stay bounded; `stream:drift` switches the hot
+set halfway through the stream.
+
+**Benchmark suite:** `stream` — exact heap observe/batch, QuickSelect,
+Count-Min, Space-Saving and Misra-Gries throughput.
+
+**Result:** 334 tests and 33,520 assertions pass; PHPStan level 8 reports no
+errors over 179 files; PHP-CS-Fixer reports no changes. On 100,000 Zipf items
+with 7,348 distinct keys, heap updates at K=10/100/1,000 took
+22.910/23.259/31.691 ms and used 344.0/338.2/506.0 KiB including the full count
+map; QuickSelect took 2.781/2.978/3.441 ms. A 100,000-key all-unique stream cost
+5,166.7 KiB exact versus 169.2 KiB for Count-Min, 18.8 KiB for Space-Saving and
+17.0 KiB for Misra-Gries. Detector recall at K=10/100/1,000 was
+50.0%/48.0%/55.9% for Space-Saving and 30.0%/46.0%/56.4% for Misra-Gries;
+Count-Min's mean error on the true top K fell from 5,554.60 to 353.77 to 14.52
+as its width grew, while Space-Saving's error fell from 252.70 to 3.64 to
+0.018. The drift run kept ten stale phase-a keys in both summaries while
+recalling all 20 current keys. In the fixed benchmark, persistent heap updates
+ran at 3,628,457 items/sec, Count-Min at 948,145, Space-Saving at 806,782 and
+Misra-Gries at 8,409,338. The 8M child process proved the exact map fails while
+Count-Min and Space-Saving complete. No multi-size time fit is claimed.
+
+**Book:** bounded memory; why exact top-K is not a K-sized heap; Count-Min as
+an estimator versus candidate summaries; detector recall versus frequency
+error; concept drift is not recency. Deferred to the book phase.
 
 ### Phase 8 — Chapter 07: External Sorting
 
