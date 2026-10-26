@@ -764,9 +764,9 @@ are deferred; they do not block the v1.0 release checklist below.
 
 **Status (2026-10-26):** the code and integration scenario are tagged
 `v1.0.0`; the seven Russian chapters are published in the book repository at
-book commit `fc45013`. The book checker was extended with
+book commit `61b5a5c`. The book checker was extended with
 `--expected-chapters=7`, the Algorithms Lab step was added to the book CI, and
-book CI run `40277476390` passed. All code blocks are pinned to `v1.0.0`.
+book CI run `40277854295` passed. All code blocks are pinned to `v1.0.0`.
 
 - [x] Tag `v1.0.0` after all seven chapters and the integration scenario.
 - [x] Pin every code block in the book to the tag or a full SHA.
