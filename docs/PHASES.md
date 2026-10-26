@@ -701,24 +701,62 @@ a nominal byte count; stability as chunk order plus run order; why in-memory
 
 ---
 
-## 9. Phase 9 — Integration scenarios
+## 9. Phase 9 — Integration scenarios — MVP complete
 
 The topics must not remain isolated exercises. Three scenarios connect them to
 the sibling systems:
 
 1. **Cache tier.** Consistent hashing + LRU/LFU: an N-node cluster, node
    addition and failure, hit ratio and key movement. Links to php-mini-cache
-   and php-systems-platform.
+   and php-systems-platform. Not implemented yet.
 2. **Log pipeline.** Access-log stream → Bloom for uniqueness → Top-K URLs →
    external sort for a daily report. Links to the observability chapters.
+   ✅ MVP complete.
 3. **Mini index.** B+Tree + Bloom: point queries and the savings from false
    positives versus a full scan. Links to php-mini-database and
-   php-mini-search.
+   php-mini-search. Not implemented yet.
 
-The MVP needs one scenario; v1.0 needs two or three.
+The MVP needs one scenario. The original plan set two or three for v1.0; this
+release takes the MVP gate (one) and defers the other two rather than blocking
+the book on them. The log pipeline was chosen because it composes three
+chapters rather than re-testing one. The cache-tier and mini-index scenarios
+remain future work, not hidden partial implementations.
+
+**Status (2026-10-26):** complete at code commit `4fe7adb`. `make scenario` is
+the one-command entry point; it delegates to
+`php bin/experiment scenario:log-pipeline` so the experiment discovery and
+option validation stay in one harness. The scenario writes both the terminal
+report and `var/results/log-pipeline-report.txt`.
+
+**Code:** `src/Integration/LogStream` yields a deterministic Zipf URL stream;
+`LogPipeline` uses Bloom only as a first-seen detector, inserts only candidates,
+keeps exact counts in `TopKHeap`, and writes `count<TAB>url` records through
+`ExternalSorter`; `LogPipelineResult` carries Bloom counters, the exact top-K,
+report I/O and timings. `LogPipeline` sorts by count descending and URL
+ascending with a 32 KiB chunk and fan-in 8. Bloom false positives are measured
+as `exact distinct - new candidates`; the exact distinct count comes from
+`TopKHeap`'s count map, so no separate validation set is needed.
+
+**Result:** 100,000 requests over 20,000 Zipf ranks (seed `book`) produced
+10,442 exact distinct URLs. Bloom used 191,702 bits (23,963 B), 7 hashes and
+inserted 10,440 candidates; two first occurrences were false positives (0.019%
+observed versus a 0.032% formula estimate and a 1% target, because the filter
+was sized for 20,000 URLs and the realized distinct count was lower). Ingest
+took 0.246 s with a 1.79 MiB PHP peak; the report had 10,442 records, 10 runs
+and 2 merge passes, read/wrote 948,765 B each (1,897,530 B logical I/O), used
+64,198 comparisons and 0.088 s, with a 0.45 MiB sort peak. The full report is
+316,255 B. The top three URLs had 14,608, 6,836 and 4,295 requests. These are
+one-run integration observations, not benchmark medians.
+
+**Tests:** 361 tests and 34,314 assertions; PHPStan level 8 no errors over 202
+files; PHP-CS-Fixer 202 files clean. The integration tests cover Bloom's
+candidate equation, exact top-K, count-tie report order, empty input and the
+deterministic URL stream. The external sorter and top-K internals retain their
+chapter tests.
 
 **Definition of done:** one command runs the scenario, records its own report
-and shows the effect of each structure.
+and shows the effect of each structure. The cache-tier and mini-index scenarios
+are deferred; they do not block the v1.0 release checklist below.
 
 ---
 

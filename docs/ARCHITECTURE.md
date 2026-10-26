@@ -35,6 +35,7 @@ experiments/NN-topic/*.php          benchmarks/*.php
 | Benchmark | Descriptor, repetitions, timings, environment, formatters | Instrumentation |
 | Cli | `--name=value` parsing shared by both entry points | nothing |
 | Chapter modules | Hash table, Bloom, cache, graph, tree, ring, stream, external sort | Foundation, Instrumentation |
+| Integration | Access-log scenario: Bloom first-seen, exact top-K, external report | BloomFilter, Stream, ExternalSort |
 
 The cache module is a good example of the split: `Cache` and `CacheStats` are
 the contract, `LRUCache`/`LFUCache`/`HeapLFU` are the policies under study,
@@ -147,6 +148,13 @@ not an algorithm.
   `sort:patterns` and `sort:io`; the benchmark suite is `external-sort`. The
   `tests/ExternalSort/BoundedMemoryTest.php` child runs an 8 MiB input under
   `memory_limit=8M`; the exact in-memory alternative is checked to fail there.
+- Phase 9's MVP is `src/Integration/`. `LogStream` yields a deterministic Zipf
+  access-log URL stream; `LogPipeline` uses Bloom only as a first-seen detector,
+  keeps exact counts in `TopKHeap`, and writes `count<TAB>url` records through
+  `ExternalSorter`; `LogPipelineResult` carries the Bloom counters, exact top-K
+  and report I/O. The experiment is `scenario:log-pipeline` and `make scenario`
+  is the one-command entry point. The report stays in
+  `var/results/log-pipeline-report.txt`.
 - `src/Foundation/IndexedMinHeap.php` is the decrease-key heap used by
   `DijkstraDecreaseKey`; `UnionFind` accepts path-compression and union-by-rank
   flags plus an optional `Counters`, which is what makes the DSU experiment a

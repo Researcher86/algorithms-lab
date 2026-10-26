@@ -29,6 +29,7 @@ The harness has one demo of each entry point:
 ```bash
 make experiment                              # list the experiments
 make experiment ARGS="demo:smoke"            # run one
+make scenario                                # Bloom -> top-K -> external report
 make benchmark ARGS="demo"                   # text report with environment
 ```
 
@@ -53,6 +54,7 @@ make experiment ARGS="sort:memory-limit --seed=book"
 make experiment ARGS="sort:fan-in --seed=book"
 make experiment ARGS="sort:patterns --seed=book"
 make experiment ARGS="sort:io --seed=book"
+make scenario
 make benchmark ARGS="hash-table --repetitions=5"
 make benchmark ARGS="cache --repetitions=5"
 make benchmark ARGS="graph --repetitions=5"
@@ -99,8 +101,10 @@ Phase 0, Phase 1 and the code and measurements of Chapters 01–07 are complete:
 the container, the foundation, the instrumentation, the experiment/benchmark
 harness and the hash-table/Bloom-filter, cache, graph, tree, consistent-hash,
 stream and external-sort chapters all run through `make check` locally and in
-CI. The Phase 9 integration scenario is next; the Russian book chapters are
-written after the code chapters, against a tagged release.
+CI. The Phase 9 MVP scenario is also complete: `make scenario` runs a
+deterministic access-log stream through Bloom, exact top-K and an externally
+sorted report. The next step is the v1.0.0 release and the Russian book
+chapters, which are written against that tagged release.
 
 ## Documentation
 
@@ -145,8 +149,10 @@ rendezvous-hash alternative and a modulo baseline; Chapter 06 adds
 Misra-Gries and reproducible stream generators; Chapter 07 adds
 `src/ExternalSort/` with a chunk-sort-spill-merge sorter, byte-bounded chunk
 reader, stable k-way merge, deterministic pattern generator and logical-I/O
-statistics. The experiment and benchmark entry points are discoverable: drop a
-descriptor under `experiments/` or `benchmarks/` and it appears in the list
+statistics. `src/Integration/` adds the Phase 9 MVP: a deterministic Zipf URL
+stream, a Bloom first-seen pass, exact top-K counting and an externally sorted
+daily report. The experiment and benchmark entry points are discoverable: drop
+a descriptor under `experiments/` or `benchmarks/` and it appears in the list
 without editing a central registry.
 
 ## How this project relates

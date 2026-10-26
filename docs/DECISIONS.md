@@ -677,3 +677,48 @@ was made. New decisions are appended with a date.
   extensions. It is a regression guard with a wide margin around the measured
   29.6 MiB peak of an 8 MiB chunk; the test's chunk is much smaller than the
   experiment's.
+
+## 2026-10-26 — One MVP integration scenario: access-log pipeline
+
+- Phase 9 starts with one end-to-end scenario rather than three shallow demos.
+  The log pipeline is the best fit for the seven chapters: it combines Bloom
+  uniqueness, exact top-K counting and external sorting in one reproducible
+  command. The cache-tier and mini-index scenarios remain future work, not
+  hidden partial implementations.
+- `make scenario` is a thin wrapper around
+  `php bin/experiment scenario:log-pipeline`; the experiment remains the single
+  implementation and the benchmark/experiment discovery rules stay unchanged.
+  The wrapper exists because the definition of done asks for one command, not
+  because the scenario needs a second harness.
+- The stream is deterministic Zipf-distributed URLs. The default is 100,000
+  requests over 20,000 ranks, with `--requests`, `--urls`, `--top` and `--seed`
+  available for smaller runs. The generator yields URLs instead of building a
+  request list, so the pipeline actually consumes an iterable.
+- Bloom is a first-seen detector, not a source of truth. A URL is inserted only
+  when `mightContain()` returns false; repeated URLs do not inflate the filter.
+  The exact distinct count comes from `TopKHeap`'s count map, which lets the
+  report compute false positives as `distinct - new candidates` without a
+  separate validation set. This is also why the observed false-positive rate
+  is reported separately from the filter's formula estimate.
+- The filter is sized for the URL alphabet, not for the actual Zipf head. On the
+  default run the alphabet is 20,000 but only 10,442 URLs occur, so the filter is
+  oversized: target 1%, estimated 0.03%, observed 2/10,442 = 0.02%. The report
+  keeps the target, estimate and observation distinct instead of claiming the
+  target was hit.
+- `TopKHeap` is deliberately exact. Its heap is bounded by K, but its count map
+  keeps every distinct URL; the scenario reports that distinction rather than
+  presenting the heap as a bounded-memory sketch. A production service that
+  cannot keep the map would use the chapter's approximate summaries and accept
+  their error.
+- The daily report is `count<TAB>url`, sorted by count descending and URL
+  ascending through `ExternalSorter` with a 32 KiB chunk and fan-in 8. The
+  pipeline already has the counts; the separate sort stage demonstrates that the
+  report can be produced in bounded-memory sorted form. The report remains at
+  `var/results/log-pipeline-report.txt` and is gitignored with the other results.
+- The scenario is an integration demonstration, not a benchmark. Its timings
+  are one local Docker run; the JSON records the seed, sizes and measured
+  counters so a rerun can be compared, but there is no median/p95 claim.
+- Tests cover the pipeline's Bloom candidate equation, exact top-K, tie-broken
+  report order and empty input, plus the deterministic URL stream. The external
+  sorter and top-K implementations have their own chapter tests; the integration
+  test checks the composition rather than re-testing every internals case.

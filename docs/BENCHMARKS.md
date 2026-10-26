@@ -42,6 +42,7 @@ Both are reported, never mixed into one number.
 ```bash
 make experiment                                  # list every experiment
 make experiment ARGS="demo:smoke"
+make scenario                                    # integration: Bloom -> top-K -> report
 
 make experiment ARGS="hash:load-factor --elements=20000 --seed=book"
 make experiment ARGS="hash:collisions --elements=10000 --capacity=1024 --seed=book"
@@ -1140,3 +1141,72 @@ fatal allocator error is not safely catchable in PHPUnit.
   needs the larger container limit.
 - No multi-size time fit is claimed. This is one file shape, one Docker host and
   one cache state.
+
+### Integration scenario — log pipeline
+
+`make scenario` is one run, not a benchmark suite: it demonstrates the composed
+Bloom → exact top-K → external-report path and writes a durable report. The
+numbers below are from the default 100,000-request / 20,000-rank stream at code
+commit `4fe7adb`, in the same PHP 8.5.11 Docker environment (`Linux
+7.0.14-linuxkit, aarch64 x 12, memory_limit 512M`, OPcache/JIT/Xdebug off).
+The JSON form is:
+
+```bash
+make scenario ARGS="--format=json --output=var/results/log-pipeline.json"
+```
+
+The stream is deterministic Zipf with alpha 1.1 and seed `book`. The default
+report sort uses a 32 KiB chunk and fan-in 8.
+
+| Measurement | Value |
+|---|---:|
+| Requests | 100,000 |
+| URL ranks in the alphabet | 20,000 |
+| Exact distinct URLs | 10,442 |
+| Bloom bits / bytes | 191,702 bits / 23,963 B (23.4 KiB) |
+| Bloom hashes | 7 |
+| Bloom bit density | 0.3175 |
+| Bloom target / estimated FPR | 1.0% / 0.032% |
+| Bloom inserts / new candidates | 10,440 / 10,440 |
+| Bloom false positives / observed FPR | 2 / 0.019% |
+| Ingest time / PHP peak | 0.246 s / 1.79 MiB |
+| Ingest allocator delta | 1.42 MiB |
+| Report records | 10,442 |
+| Report runs / passes | 10 / 2 |
+| Report read / written | 948,765 B / 948,765 B |
+| Report logical I/O | 1,897,530 B (1.81 MiB) |
+| Report comparisons | 64,198 |
+| Report sort time / PHP peak | 0.088 s / 0.45 MiB |
+| Report file size | 316,255 B (309 KiB) |
+
+The exact distinct count is 10,442, but Bloom inserted 10,440 candidates and
+missed two first occurrences: those two are the measured false positives. The
+filter was sized for 20,000 possible URLs, while the Zipf sample realized only
+10,442, so it is oversized; the target 1% is not the observed rate. The report
+keeps the target, formula estimate and observation separate.
+
+The top ten report entries were:
+
+| Rank | URL | Requests |
+|---:|---|---:|
+| 1 | `https://example.test/p/1` | 14,608 |
+| 2 | `https://example.test/p/2` | 6,836 |
+| 3 | `https://example.test/p/3` | 4,295 |
+| 4 | `https://example.test/p/4` | 3,208 |
+| 5 | `https://example.test/p/5` | 2,370 |
+| 6 | `https://example.test/p/6` | 1,988 |
+| 7 | `https://example.test/p/7` | 1,675 |
+| 8 | `https://example.test/p/8` | 1,510 |
+| 9 | `https://example.test/p/9` | 1,280 |
+| 10 | `https://example.test/p/10` | 1,144 |
+
+The 10,442 aggregated records fit in 10 initial runs at 32 KiB and need two
+merge passes. The report is sorted by count descending, then URL ascending; the
+full file remains at `var/results/log-pipeline-report.txt`. `TopKHeap` is exact
+and keeps a count for every distinct URL, so its count map is not bounded by K;
+the scenario reports the heap and map together rather than pretending the
+bounded heap is a bounded-memory sketch.
+
+There is no median or p95 here. The scenario is a reproducible integration
+check; rerun it for a new local observation rather than treating these as
+universal timings.
