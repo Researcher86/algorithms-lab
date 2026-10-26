@@ -8,9 +8,10 @@
 
 This repository is the code behind the seven chapters of
 [Algorithms Lab](https://github.com/Researcher86/engineering-lab-book/tree/master/algorithms-lab).
-The Docker environment, the measurement harness and the first seven chapters are
-complete; the build journal, including the full plan for the remaining
-chapters, lives in [docs/PHASES.md](docs/PHASES.md).
+The Docker environment, the measurement harness, the first seven chapters and
+the log-pipeline integration scenario are complete. The code release is tagged
+[`v1.0.0`](https://github.com/Researcher86/algorithms-lab/releases/tag/v1.0.0);
+the build journal lives in [docs/PHASES.md](docs/PHASES.md).
 
 ---
 
@@ -103,8 +104,8 @@ harness and the hash-table/Bloom-filter, cache, graph, tree, consistent-hash,
 stream and external-sort chapters all run through `make check` locally and in
 CI. The Phase 9 MVP scenario is also complete: `make scenario` runs a
 deterministic access-log stream through Bloom, exact top-K and an externally
-sorted report. The next step is the v1.0.0 release and the Russian book
-chapters, which are written against that tagged release.
+sorted report. The code is tagged `v1.0.0`; the Russian book chapters are
+written against that tag.
 
 ## Documentation
 
