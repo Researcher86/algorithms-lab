@@ -760,19 +760,22 @@ are deferred; they do not block the v1.0 release checklist below.
 
 ---
 
-## 10. Phase 10 — Release and book handoff — code release complete
+## 10. Phase 10 — Release and book handoff — complete
 
-**Status (2026-10-26):** the code and integration scenario are complete and
-tagged `v1.0.0`. The book handoff is the remaining part of this phase.
+**Status (2026-10-26):** the code and integration scenario are tagged
+`v1.0.0`; the seven Russian chapters are published in the book repository at
+book commit `fc45013`. The book checker was extended with
+`--expected-chapters=7`, the Algorithms Lab step was added to the book CI, and
+book CI run `40277476390` passed. All code blocks are pinned to `v1.0.0`.
 
 - [x] Tag `v1.0.0` after all seven chapters and the integration scenario.
-- [ ] Pin every code block in the book to the tag or a full SHA.
-- [ ] Extend the book checker with `--expected-chapters=7`.
-- [ ] Add the Algorithms Lab check to the book CI.
-- [ ] Update `book/algorithms-lab/README.md` and the series README; remove the
+- [x] Pin every code block in the book to the tag or a full SHA.
+- [x] Extend the book checker with `--expected-chapters=7`.
+- [x] Add the Algorithms Lab check to the book CI.
+- [x] Update `book/algorithms-lab/README.md` and the series README; remove the
   draft status.
 - [x] All chapter and scenario tables in `docs/BENCHMARKS.md` are present.
-- [ ] Mark every remaining book phase complete after the Russian chapters land.
+- [x] Mark every remaining book phase complete after the Russian chapters land.
 
 ---
 

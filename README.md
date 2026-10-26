@@ -104,8 +104,10 @@ harness and the hash-table/Bloom-filter, cache, graph, tree, consistent-hash,
 stream and external-sort chapters all run through `make check` locally and in
 CI. The Phase 9 MVP scenario is also complete: `make scenario` runs a
 deterministic access-log stream through Bloom, exact top-K and an externally
-sorted report. The code is tagged `v1.0.0`; the Russian book chapters are
-written against that tag.
+sorted report. The code is tagged `v1.0.0`; the seven Russian book chapters
+are published in the
+[book repository](https://github.com/Researcher86/engineering-lab-book/tree/master/algorithms-lab)
+and pinned to that tag.
 
 ## Documentation
 
