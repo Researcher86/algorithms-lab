@@ -794,7 +794,8 @@ operation, so their ops/sec is add-remove pairs per second.
 
 Modulo is the fastest lookup and the worst at preserving mappings. Rendezvous
 has no ring to rebuild and moves the ideal share, but every lookup hashes every
-node; with 20 nodes it is about four times slower than the ring in this run.
+node; with 20 nodes it is about seven times slower than the ring in this run
+(196,098 against 1,448,252 lookups per second).
 The ring's lookup is a binary search over 2,000 tokens. Add/remove is much
 slower in this implementation because each change rebuilds the sorted token
 list; that is a deliberate, measured trade-off, not an asymptotic requirement
