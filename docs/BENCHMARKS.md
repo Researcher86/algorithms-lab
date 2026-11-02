@@ -799,7 +799,8 @@ node; with 20 nodes it is about seven times slower than the ring in this run
 The ring's lookup is a binary search over 2,000 tokens. Add/remove is much
 slower in this implementation because each change rebuilds the sorted token
 list; that is a deliberate, measured trade-off, not an asymptotic requirement
-of consistent hashing (a balanced tree of tokens would change the constant).
+of consistent hashing (a balanced tree of tokens would insert or remove only
+the changed node's tokens instead of re-sorting all of them).
 
 #### What the chapter concludes
 
